@@ -3,20 +3,12 @@
 // 2. create functino that will print ip packets
 // 3. I probably need to get curent user network ip, so that tun is set to a different one
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <errno.h>
-#include <assert.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <sys/socket.h>
 
+#include "client.h"
 #include "tun.h"
+#include "common.h"
+#include "utils.h"
 
-char* get_user_message(char* buff, size_t size);
 
 
 
@@ -39,7 +31,8 @@ int main(int argc, char** argv)
     }
     else {
         printf("Configured tun interface '%s' successfully\n", dev);
-        char buff[1024] = {0};
+        //char buff[1024] = {0};
+        int buff[1024] = {0};
         ssize_t read_bytes = 0;
         while(1) {
             read_bytes = read(tun_fd, buff, sizeof(buff));
@@ -50,13 +43,14 @@ int main(int argc, char** argv)
                 fprintf(stderr, "read(%s): %s\n", dev, strerror(errno));
             }
             else {
-                printf("[%s]: %s\n", dev, buff);
+                printf("[%s]: \n", dev);
+                _print_packet(buff, read_bytes);
             }
         }
     }
     return 0;
 
-
+//////////////////////////////////////////////////
 
     if(argc != 3) {
         fprintf(stderr, "Invalid args, specify [IP] [PORT]\n");
@@ -123,6 +117,8 @@ int main(int argc, char** argv)
     
     return 0;
 }
+
+
 
 char* get_user_message(char* buff, size_t size)
 {
