@@ -9,6 +9,8 @@ typedef struct {
 
    uint32_t tun_ip; 
    char[15] tun_ip_char; // TODO maybe dont need
-} User;
+
+   uint32_t authentication_number;
+} Client;
 
 #endif //SERVER_H

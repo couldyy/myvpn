@@ -6,9 +6,10 @@
 
 #include "client.h"
 #include "tun.h"
-#include "common.h"
+#include "proto.h"
 #include "utils.h"
 
+gtg
 
 
 
@@ -32,7 +33,7 @@ int main(int argc, char** argv)
     else {
         printf("Configured tun interface '%s' successfully\n", dev);
         //char buff[1024] = {0};
-        int buff[1024] = {0};
+        uint8_t buff[1024] = {0};
         ssize_t read_bytes = 0;
         while(1) {
             read_bytes = read(tun_fd, buff, sizeof(buff));

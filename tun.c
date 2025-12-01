@@ -1,7 +1,7 @@
 #include "tun.h"
 //TODO get rid of ioctl and replace it with socket(NETLINK)
 
-// 'dev' should be allocate before calling this function, and  
+// 'dev' should be allocated before calling this function, and  
 //  if 'dev' is empty string, tun_alloc will try to allocate any available tun interface
 // otherwise allocates tun interface specified by 'dev'
 // 'ifr' should be allocated before calling this function and used in other functions to get certain metadata
