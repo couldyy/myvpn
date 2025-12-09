@@ -22,7 +22,7 @@ int tun_alloc(char* dev, struct ifreq* ifr)
     // TODO ifreq == interface request??
     memset(ifr, 0, sizeof(*ifr));
 
-    ifr->ifr_flags = IFF_TUN;
+    ifr->ifr_flags = IFF_TUN | IFF_NO_PI;
     // if dev name is passed try to get requested, 
     // if not - let kernel to give free interface name
     if(*dev)

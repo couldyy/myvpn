@@ -1,18 +1,13 @@
 #ifndef COMMON_H
 #define COMMON_H
 
-typedef uint8_t vpnflag_t
-typedef uint8_t vpncmd_t
+typedef uint8_t vpnflag_t;
+typedef uint8_t vpnmsgtype_t;
 
-typedef struct {
-    int addr;
-    int mask;
-    //int port;
-} Net_info; 
+#define MAGIC_NUM 0x909f    // randomly choosen number, will be protocol number
+#define MTU 1500  //bytes
 
-
-
-#define VPN_FLAG_SYN  ((vpnflag_t)1)
+#define VPN_FLAG_SEQ  ((vpnflag_t)1)
 #define VPN_FLAG_ACK  ((vpnflag_t)2)
 #define VPN_FLAG_FIN  ((vpnflag_t)4)
 #define VPN_FLAG_CMD  ((vpnflag_t)8)    
@@ -20,10 +15,16 @@ typedef struct {
 
 
 
-#define VPN_CMD_KEEPALIVE ((vpncmd_t)1)
-#define VPN_CMD_CONNECT ((vpncmd_t)2)
-#define VPN_CMD_REQUEST_NEW_IP ((vpncmd_t)3)
-#define VPN_MSG_RCT ((vpncmd_t)4),    // recreate(will be used for recrating connection
+#define VPN_MSG_TYPE_CONNECT ((vpnmsgtype_t)1)
+#define VPN_MSG_TYPE_CONNECT_REPLY ((vpnmsgtype_t)2)
+#define VPN_MSG_TYPE_PING ((vpnmsgtype_t)3)
+#define VPN_MSG_TYPE_PING_REPLY ((vpnmsgtype_t)4)    // recreate(will be used for recrating connection
+#define VPN_MSG_TYPE_RECONNECT ((vpnmsgtype_t)5)
+#define VPN_MSG_TYPE_ERROR ((vpnmsgtype_t)6)
+
+//typedef enum {
+//    // ...
+//} Vpn_error;
 
 /*
     MyVPN packet structure:
@@ -33,10 +34,10 @@ typedef struct {
   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+  
   |         magic number          |         Packet size           |
   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+  
-  |    Flags      |    CMD        |                               | 
-  |S A F C D      |K C R R        |                               | 
-  |E C I M A      |P O Q C        |        Header checksum        |
-  |Q K N D T      |L N I T        |                               |
+  |    Flags      |    MSG Type   |                               | 
+  |Reserved  for  |               |                               | 
+  | future usage  |               |        Header checksum        |
+  |               |               |                               |
   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+  
   |                  Synchronization number                       |
   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+  
@@ -74,33 +75,44 @@ typedef struct {
       - DAT - Data
 */
 
-typedef struct Vpn_packet {
-    uint8_t data*;
-    size_t data_size;
-};
 
-typedef struct Vpn_header {
+typedef struct {
+    uint8_t *data;
+    size_t data_size;
+} Raw_packet;
+
+typedef struct {
     uint16_t magic;
     uint16_t packet_size;
     vpnflag_t flags;
-    vpncmd_t command;
+    vpnmsgtype_t msg_type;
     uint16_t checksum; 
-    uint32_t syn_num;
+    uint32_t seq_num;
     uint32_t ack_num;
     uint32_t authentication;
-};
+} Vpn_header;
 
-// Each field in network byte order (Big-endian)
-typedef struct Connection {
-    int32_t src_ip;
-    int16_t src_port;
+typedef struct {
+    Vpn_header* header;
+    uint8_t* payload;
+    size_t payload_size;
+} Vpn_packet;
 
-    int32_t dst_ip;
-    int16_t dst_port;
+//// Each field in network byte order (Big-endian)
+//typedef struct Connection {
+//    int server_socket;
+//    struct sockaddr_in* real_src;
+//    struct sockaddr_in* tun_src;
+//
+//    struct sockaddr_in* real_dst;
+//    struct sockaddr_in* tun_dst;
+//
+//    uint32_t src_seq_num;
+//    uint32_t src_ack_num;
+//    uint32_t authentication;    // on both sides(client and server - client's authentication num)
+//};
 
-    uint32_t src_seq_num;
-    uint32_t src_ack_num;
-};
+Raw_packet construct_vpn_packet(Vpn_header header, uint8_t* payload, size_t payload_size);
+Vpn_packet* encapsulate_data_packet(uint32_t authentication_num, uint8_t* raw_packet, size_t packet_size);
 
-Vpn_packet construct_vpn_packet(Vpn_header header, uint8_t* payload, size_t payload_size);
 #endif //COMMON_H

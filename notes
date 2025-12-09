@@ -1,0 +1,18 @@
+0x0800 - IPv4 proto number in ethernet header
+0x86dd - IPv6 proto number in ethernet header
+
+
+3th and 4th bytes - ethernet protocol number
+for ipv4(0x8000)
+bytes 17-20 - src ip address
+bytes 21-24 - dst ip address
+
+ipv4:
+10th byte - protocol number inside IP header (6 (0x6) - TCP, 17 (0x11) - UDP)
+
+ipv4:
+7th byte - protocol number inside IPv6 header (58 (0x3a) - ICMPv6)
+
+validation upon reading from tun interface:
+1. check proto number - 0x0800 - pass, 0x86dd - drop for now(no ipv6 support)
+2. check src and dst addresses

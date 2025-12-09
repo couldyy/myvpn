@@ -1,16 +1,13 @@
 #ifndef SERVER_H
 #define SERVER_H
 #include <stdint.h>
-
-typedef struct {
-   uint32_t real_ip; 
-   char[15] real_ip_char; // TODO maybe dont need
-   uint16_t port;
-
-   uint32_t tun_ip; 
-   char[15] tun_ip_char; // TODO maybe dont need
-
-   uint32_t authentication_number;
-} Client;
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <errno.h>
+#include <poll.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <sys/socket.h>
 
 #endif //SERVER_H

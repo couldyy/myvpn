@@ -1,5 +1,5 @@
-//TODO:
-// 1. Make so that routing to tun ins created and set from this program
+// TODO:
+// 1. Make so that routing to tun is created and set from this program
 // 2. create functino that will print ip packets
 // 3. I probably need to get curent user network ip, so that tun is set to a different one
 
@@ -8,16 +8,17 @@
 #include "tun.h"
 #include "proto.h"
 #include "utils.h"
+#include <poll.h>
 
-gtg
 
+char* server_tun_addr = "10.0.0.1";
+uint16_t server_real_port = 9000;
 
 
 int main(int argc, char** argv)
 {
-
-    if(argc != 3) {
-        fprintf(stderr, "Invalid args, specify [NET_IP] [MASK]\n");
+    if(argc != 6) {
+        fprintf(stderr, "Invalid args, specify [NET_IP] [MASK] [SOCKET ADDR] [SOCKET PORT] [SERVER ADDR]\n");
         exit(1);
     }
     char dev[IFNAMSIZ];
@@ -25,6 +26,10 @@ int main(int argc, char** argv)
     //char *addr = "192.168.1.0";
     char *addr = argv[1];
     char *mask = argv[2];
+    char* local_ip = argv[3];
+    uint16_t local_port = atoi(argv[4]);
+    char* server_real_addr = argv[5];
+    // TODO connect to server before stting up IP address on tun interface
     int tun_fd = init_tun_if(dev, addr, mask);
     if(tun_fd < 0) {
         fprintf(stderr, "Error setting up tun interface\n");
@@ -32,107 +37,130 @@ int main(int argc, char** argv)
     }
     else {
         printf("Configured tun interface '%s' successfully\n", dev);
-        //char buff[1024] = {0};
-        uint8_t buff[1024] = {0};
-        ssize_t read_bytes = 0;
-        while(1) {
-            read_bytes = read(tun_fd, buff, sizeof(buff));
-            if(read_bytes == 0) {
-                fprintf(stderr, "EOF reached on '%s'\n", dev);
-            }
-            else if(read_bytes < 0) {
-                fprintf(stderr, "read(%s): %s\n", dev, strerror(errno));
-            }
-            else {
-                printf("[%s]: \n", dev);
-                _print_packet(buff, read_bytes);
-            }
-        }
     }
-    return 0;
 
-//////////////////////////////////////////////////
-
-    if(argc != 3) {
-        fprintf(stderr, "Invalid args, specify [IP] [PORT]\n");
-        exit(1);
-    }
-    char* server_ip = argv[1]; 
-    short server_port = atoi(argv[2]);
-    //printf("Got %s:%hd \n", client_ip, client_port);
-    
     int client_socket = socket(AF_INET, SOCK_DGRAM, 0);
     if(client_socket < 0) {
         fprintf(stderr, "socket(): %s\n", strerror(errno));
         exit(1);
     }
 
-    struct sockaddr_in remote;
-    remote.sin_family = AF_INET;
-    remote.sin_port = htons(server_port);
-    int res = inet_pton(AF_INET, server_ip, &remote.sin_addr);
-    if(res == 0) {
-        fprintf(stderr, "Invalid ip '%s'\n", server_ip);
+    printf("socket: %d\n", client_socket);
+    // TODO free() local
+    struct sockaddr_in *local = create_sockaddr_in(AF_INET, local_port, local_ip);
+    printf("struct: %zu dereference: %zu\n", sizeof(struct sockaddr_in), sizeof(*local));
+    if(local == NULL) {
         exit(1);
     }
-    else if (res < 0) {
-        fprintf(stderr, "Invalid address family\n");
-        fprintf(stderr, "%s\n", strerror(errno));
-    }
 
-    if(connect(client_socket, (struct sockaddr*)&remote, sizeof(remote)) < 0) {
-        fprintf(stderr, "connect(): %s\n", strerror(errno));
+
+    if(bind(client_socket, (struct sockaddr*) local, sizeof(*local)) < 0) {
+        fprintf(stderr, "bind(): %s\n", strerror(errno));
         exit(1);
     }
-    else {
-        printf("Successfully connected to '%s:%hd'...\n", server_ip, server_port);
+    printf("bind '%s:%hu' success\n", local_ip, local_port);
+
+    // TODO free() local
+    struct sockaddr_in *server_addr = create_sockaddr_in(AF_INET, server_real_port, server_real_addr);
+    if(server_addr == NULL) {
+        exit(1);
     }
 
-    int len = sizeof(remote);
-    char msg_buf[BUFSIZ];
+    size_t fds_count = 2;
+    struct pollfd fds[fds_count];
+    memset(fds, 0, sizeof(fds));
+
+    fds[0] = (struct pollfd) { .fd = client_socket, .events = POLLIN, .revents = 0};
+    fds[1] = (struct pollfd) { .fd = tun_fd, .events = POLLIN, .revents = 0 };
+    int poll_res;
     while(1) {
-        get_user_message(msg_buf, sizeof(msg_buf));
-        memset(msg_buf, 0, sizeof(msg_buf));
-        for(int i = 0; i < 100; i++) {
-            snprintf(msg_buf, sizeof(msg_buf), "%d", i);
-            if(sendto(client_socket, msg_buf, sizeof(msg_buf), 0,
-                    (struct sockaddr*)&remote, len) < 0) {
-                fprintf(stderr, "sendto(): %s\n", strerror(errno));
-            }
-            else {
-                printf("sent: %s\n", msg_buf);
-            }
-            usleep(100);
+        poll_res = poll(fds, fds_count, -1);
+        if(poll_res < 0) {
+            fprintf(stderr, "poll(): %s\n", strerror(errno));
+            exit(1);
         }
+        for(int i = 0; i < fds_count; i++) {
+            struct pollfd* current = &fds[i];
+            if(current->revents & POLLIN == 1) {
+                if (current->fd == client_socket) {
+                    struct sockaddr_in src_addr;
+                    socklen_t src_addr_len = sizeof(struct sockaddr_in);
+                    uint8_t buff[MTU] = {0};
+                    ssize_t read_bytes = recvfrom(client_socket, buff, sizeof(buff), 0,
+                            (struct sockaddr*) &src_addr, &src_addr_len);
 
-        if(recvfrom(client_socket, msg_buf, sizeof(msg_buf), 0,
-                (struct sockaddr*)&remote, &len) < 0) {
-            fprintf(stderr, "recvfrom(): %s\n", strerror(errno));
-        }
-        else {
-            char server_addr[16];
-            inet_ntop(AF_INET, &remote.sin_addr, server_addr, sizeof(server_addr));
-            printf("'%s:%hu' > %s\n", server_addr, ntohs(remote.sin_port), msg_buf);
+                    char peer_addr[16];
+                    inet_ntop(AF_INET, &src_addr.sin_addr, peer_addr, sizeof(peer_addr));
+
+                    printf("got message on socket (%d) ('%s:%hu'):\n", current->fd, 
+                            peer_addr, ntohs(src_addr.sin_port));
+                    if(read_bytes == 0) {
+                        fprintf(stderr, "EOF reached on '%d'\n", current->fd);
+                    }
+                    else if(read_bytes < 0) {
+                        fprintf(stderr, "read(%d): %s\n", current->fd, strerror(errno));
+                    }
+                    else {
+                        _print_packet(buff, read_bytes);
+                        ssize_t written_bytes = write(tun_fd, buff, read_bytes);
+                        if(written_bytes < 0) {
+                            fprintf(stderr, "Faild to write packet: %s\n", strerror(errno));
+                        }
+                        else if(written_bytes == 0) {
+                            fprintf(stderr, "EOF on tun interface\n");
+                        }
+                        else if(written_bytes != read_bytes) {
+                            fprintf(stderr, "Error: wrote %d/%d bytes of packet\n", written_bytes, read_bytes);
+                        }
+                        else {
+                            printf("Successfully wrote packet to '%s'\n", dev);
+                        }
+                    }
+                }
+                else if (current->fd == tun_fd) {
+                    printf("got message on tun (%d):\n", current->fd);
+                    uint8_t buff[1500];
+                    ssize_t read_bytes = 0;
+                    read_bytes = read(current->fd, buff, sizeof(buff));
+                    if(read_bytes == 0) {
+                        fprintf(stderr, "EOF reached on '%d'\n", current->fd);
+                    }
+                    else if(read_bytes < 0) {
+                        fprintf(stderr, "read(%d): %s\n", current->fd, strerror(errno));
+                    }
+                    else {
+                        _print_packet(buff, read_bytes);
+                        Ip_data ip_data = parse_ip_header(buff, read_bytes);
+                        printf("version: %d\n", ip_data.ip_version);
+                        if(ip_data.ip_version == 6) {
+                            
+                            continue;
+                        }
+
+                        // TODO encapsulate
+                        ssize_t written_bytes = sendto(client_socket, buff, read_bytes, 0,
+                            (struct sockaddr*) server_addr, sizeof(*server_addr));
+                        if(written_bytes < 0) {
+                            fprintf(stderr, "Faild to send message: %s\n", strerror(errno));
+                        }
+                        else if(written_bytes == 0) {
+                            fprintf(stderr, "EOF on receiving side\n");
+                        }
+                        else if(written_bytes != read_bytes) {
+                            fprintf(stderr, "Error: send %d/%d bytes of packet\n", written_bytes, read_bytes);
+                        }
+                        else {
+                            printf("Successfully sent packet to '%u'\n", ntohl(server_addr->sin_addr.s_addr));
+                        }
+                    }
+                }
+                else {
+                    fprintf(stderr, "Unexpected fd - %d\n", current->fd);
+                }
+            }
         }
     }
-    
+
     return 0;
 }
 
-
-
-char* get_user_message(char* buff, size_t size)
-{
-    printf("message > ");
-    char* read = fgets(buff, size, stdin);
-    if(read == NULL) {
-        fprintf(stderr, "fgets(): Error getting user input\n");
-        return NULL;
-    }
-    size_t read_len = strlen(buff);
-    if(buff[read_len-1] == '\n') {
-        buff[read_len-1] = '\0';
-    }
-
-    return read;
-}
