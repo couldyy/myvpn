@@ -48,8 +48,8 @@ Vpn_packet* parse_packet(uint8_t* raw_packet, size_t packet_size)
     memcpy(&header->flags, raw_packet + packet_offset, sizeof(header->flags));
     packet_offset += sizeof(header->flags);
 
-    memcpy(&header->command, raw_packet + packet_offset, sizeof(header->command));
-    packet_offset += sizeof(header->command);
+    memcpy(&header->msg_type, raw_packet + packet_offset, sizeof(header->msg_type));
+    packet_offset += sizeof(header->msg_type);
 
     uint16_t packet_checksum;
     memcpy(&packet_checksum, raw_packet + packet_offset, sizeof(header->checksum));
@@ -141,4 +141,33 @@ uint16_t calculate_checksum(Vpn_header* header, size_t header_size, uint8_t* pay
         sum += ntohs(((uint16_t*)payload)[i]);
     }
     return sum;
+}
+
+
+uint8_t* get_bytes(uint8_t* num, size_t size)
+{
+    uint8_t* bytes = malloc(size);
+    for(int i = 0; i < size; i++) {
+        bytes[i] = num[i];
+    }
+    return bytes;
+}
+
+char* get_bytes_str(uint8_t* num, size_t size) 
+{
+    uint8_t* bytes = get_bytes(num, size);
+    size_t str_size = size*5;
+    char* bytes_str = malloc(str_size);
+    memset(bytes_str, 0, str_size);
+    int written = 0;
+    for(int i = 0; i < size; i++) {
+        written += snprintf(bytes_str + written, str_size - written, "%.2x ", bytes[i]);
+    }
+    return bytes_str;
+}
+
+char* get_bytes_str_num(uint32_t num, size_t size)
+{
+    uint8_t* num_bytes = (uint8_t*) &num;
+    return get_bytes_str(num_bytes, size);
 }

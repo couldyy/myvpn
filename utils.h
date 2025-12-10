@@ -35,5 +35,8 @@ uint16_t calculate_checksum(Vpn_header* header, size_t header_size, uint8_t* pay
 
 Vpn_packet* parse_packet(uint8_t* raw_packet, size_t packet_size);
 
+uint8_t* get_bytes(uint8_t* num, size_t size);
+char* get_bytes_str(uint8_t* num, size_t size);
+char* get_bytes_str_num(uint32_t num, size_t size);
 #endif //UTILS_H
 

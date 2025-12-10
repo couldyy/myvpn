@@ -2,6 +2,7 @@
 #include "proto.h"
 #include "tun.h"
 #include "utils.h"
+#include "address_pool.h"
 
 int main(int argc, char** argv)
 {
@@ -14,6 +15,12 @@ int main(int argc, char** argv)
     char* tun_addr = argv[3];
     char* tun_mask = argv[4];
     printf("Got %s:%hu %s %s \n", server_addr, server_port, tun_addr, tun_mask);
+    Network* tun_network = get_network(tun_addr, tun_mask);
+    if(tun_network == NULL) {
+        exit(1);
+    }
+    printf("initialized network %u (%u - %u)\n", tun_network->network_addr, 
+        tun_network->range_start, tun_network->range_end);
     
     // init socket
     int server_socket = socket(AF_INET, SOCK_DGRAM, 0);
