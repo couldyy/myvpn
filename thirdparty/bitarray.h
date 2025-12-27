@@ -10,16 +10,25 @@
 #if defined(USE_U8)
 #define elem_t uint8_t
 
+#elif defined(USE_U16)
+#define elem_t uint16_t
+
 #elif defined(USE_U32)
 #define elem_t uint32_t
 
-#else
+#elif defined(USE_U64)
 #define elem_t uint64_t
+
+#else
+#define elem_t uintptr_t
 #endif
+
 
 #define BITS_IN_BYTE 8
 
 #define ELEMENT_SIZE (sizeof(elem_t) * BITS_IN_BYTE)
+
+#define ELEM_T_MAX_VALUE ((1 << (ELEMENT_SIZE-1)) + (ELEMENT_SIZE - 1))
 
 typedef struct {
     elem_t *items;
@@ -28,10 +37,38 @@ typedef struct {
 } Bit_array;
 
 void print_bitarray(Bit_array* bit_array);
+
+// allocates array of 'bit_count' bits (bitcount / sizeof(elem_t) bytes) and initializes array with 'init_value'
+// on success returns 0, on error -1
 int init_bit_array(Bit_array* bit_array, size_t bit_count, uint8_t init_value);
+
+// On success returns 'Bit_array' structure
+// on failure - aborts
+Bit_array init_bit_array_stack(size_t bit_count, uint8_t init_value);
+
+// On success returns address to 'Bit_array' structure
+// on failure - NULL
+Bit_array* init_bit_array_heap(size_t bit_count, uint8_t init_value);
+
+// sets bit at 'index' to 1st bit of 'value'
+// on success return updated value of bit, on error -1
 int set_bit(Bit_array* bit_array, size_t index, elem_t value);
+
+// toggles bit at 'index' 
+// on success 0 is returned, on error abort() 
 int toggle_bit(Bit_array* bit_array, size_t index);
+
+// gets bit value at 'index' 
+// on success bit value is returned, on error abort() 
 int get_bit(Bit_array* bit_array, size_t index);
+
+// TODO implement cache (maybe just store 'last_found' bit or byte and start iterating from it (should also % index so
+//      that iteration would loop, and stop either when empty elemnt was found or reached starting position
+//      which would lead to a shitty performance on full or nearly full array, but for that case can set some flags in 
+//      'Bit_array' structure
+
+// searches 'bit_array' for 1st bit of 'needle'
+// on succes returns index of first found bit, on error -1
 ssize_t find_first_bit(Bit_array* bit_array, uint8_t needle);
 
 #endif // BITARRAY_H
@@ -116,8 +153,8 @@ int set_bit(Bit_array* bit_array, size_t index, elem_t value)
             break;
         default:
             fprintf(stderr, "Invalid 'value' : %d\n", norm_value);
-            exit(1);
-            break;
+            return -1;
+            //abort();  //TODO maybe just abort
     }
     return norm_value; 
 }
@@ -145,12 +182,35 @@ int get_bit(Bit_array* bit_array, size_t index)
     return ((bit_array->items[elem]) >> bit) & 1;
 }
 
+// On success returns address to 'Bit_array' structure
+// on failure - NULL
+Bit_array* init_bit_array_heap(size_t bit_count, uint8_t init_value)
+{
+    Bit_array* bit_array = malloc(sizeof(Bit_array));
+    if(init_bit_array(bit_array, bit_count, init_value) < 0)
+        return NULL;
+    return bit_array;
+}
+
+// On success returns 'Bit_array' structure
+// on failure - aborts
+Bit_array init_bit_array_stack(size_t bit_count, uint8_t init_value)
+{
+    Bit_array bit_array;
+    if(init_bit_array(&bit_array, bit_count, init_value) < 0)
+        abort();
+    return bit_array;
+}
+
 // allocates array of 'bit_count' aligned bits and initializes 'bit_count' bits with 1st bit of 'init_value'
 int init_bit_array(Bit_array* bit_array, size_t bit_count, uint8_t init_value)
 {
-    assert(bit_array != NULL && bit_count > 0);
-//    if(bit_array == NULL || bit_count < 1) 
-//        return -1;
+    assert(bit_array != NULL);
+    assert(bit_count > 0);
+    
+    if(bit_count > ELEM_T_MAX_VALUE) {
+        return -1;
+    }
 
     elem_t last_byte_bits = bit_count % ELEMENT_SIZE;
     size_t arr_size = bit_count / ELEMENT_SIZE + (last_byte_bits == 0 ? 0 : 1);
@@ -183,7 +243,6 @@ int init_bit_array(Bit_array* bit_array, size_t bit_count, uint8_t init_value)
             bit_array->items[arr_size - 1] &= (~bits_mask); 
         }
     }
-
     return 0;
 
 }

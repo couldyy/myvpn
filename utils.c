@@ -1,7 +1,67 @@
 #include "utils.h"
 
+
+
+// TODO maybe it is better to move those 2 funtions to server.h
+// TODO #2 change return type to 'hash_t' when updated 'cash_table.h' will be provided
+// fnv1a hash
+uint64_t hash_sockaddr(const void* key)
+{
+    assert(key != NULL);
+    struct sockaddr_in* addr = (struct sockaddr_in*)key;
+    //printf("hash %hu  %u\n", addr->sin_port, addr->sin_addr.s_addr);
+    uint64_t h = 1469598103934665603ULL;
+    for(int i = 0; i < sizeof(*addr); i++) {
+        h ^= ((uint8_t*)addr)[i];
+        h *= 1099511628211ULL;
+    }
+    //printf("hash %zu\n", h);
+    return h;
+}
+
+int cmp_sockaddr(const void* a, const void* b)
+{
+    assert(a != NULL && b != NULL);
+    struct sockaddr_in* a_addr = (struct sockaddr_in*) a;
+    struct sockaddr_in* b_addr = (struct sockaddr_in*) b;
+   // printf("cmp %p %p\n", a_addr, b_addr);
+   // printf("%d:%d %hu:%hu %u:%u\n", a_addr->sin_family, b_addr->sin_family,  
+   //     a_addr->sin_port, b_addr->sin_port,
+   //     a_addr->sin_addr.s_addr, b_addr->sin_addr.s_addr);
+
+    if((a_addr->sin_family == b_addr->sin_family) && 
+        (a_addr->sin_port == b_addr->sin_port) &&
+        (a_addr->sin_addr.s_addr == b_addr->sin_addr.s_addr)) {
+        return 0;
+    }
+    else {
+        return 1;   // since in HashTable code it only checks wether compare funce returns 0, we can return 
+    }               // anything but 0 if addresses dont match 
+                    
+}
+
+uint64_t hash_uint32_ptr(const void* key)
+{
+    uint64_t hash = (uint32_t)key;
+    hash = ((hash >> 16) ^ hash) * 0x45d9f3bu;
+    hash = ((hash >> 16) ^ hash) * 0x45d9f3bu;
+    hash = (hash >> 16) ^ hash;
+    return hash;
+}
+int cmp_uint32_ptr(const void* a, const void* b)
+{
+    assert(a != NULL && b != NULL);
+    return !((uint32_t)a == (uint32_t)b);
+}
+
+
+// NOTE: parsed IP addresses are in NETWORK byte order ('version' field is single byte, so order doesnt matter)
+// parses ip header (currently only ipv4 supported)
+// on success returns 'Ip_data' structure with corresponding fileds filled with data
+// on error also returns 'Ip_data' struct but values that could not be parsed are set to 0
 Ip_data parse_ip_header(uint8_t* ip_packet, size_t packet_size)
 {
+    assert(ip_packet != NULL && packet_size > 0);
     uint8_t version = ip_packet[0] >> 4;
 
     uint32_t src_addr_v4 = 0;
@@ -17,81 +77,24 @@ Ip_data parse_ip_header(uint8_t* ip_packet, size_t packet_size)
     return (Ip_data) {.ip_version = version, .src_addr_v4 = src_addr_v4, .dst_addr_v4 = dst_addr_v4};
     
 }
-Vpn_packet* parse_packet(uint8_t* raw_packet, size_t packet_size)
-{
-    Vpn_packet* parsed_packet = malloc(sizeof(Vpn_packet));
 
-    uint16_t packet_magic;
-    off_t packet_offset = 0;
-    // copy magic num first
-    memcpy(&packet_magic, raw_packet + packet_offset, sizeof(uint16_t));
-    packet_offset += sizeof(packet_magic);
-
-    // if first 2 bytes in received packet is not magic num - it is not vpn packet, ju return raw packet
-    if(packet_magic != htons(MAGIC_NUM)) {
-        parsed_packet->header = NULL;
-        parsed_packet->payload = raw_packet;
-        parsed_packet->payload_size = packet_size;
-        return parsed_packet;
-    }
-
-    // else - parse whole packet
-    Vpn_header* header = malloc(sizeof(Vpn_header));
-    header->magic = packet_magic;
-
-    memcpy(&header->packet_size, raw_packet + packet_offset, sizeof(header->packet_size));
-    packet_offset += sizeof(header->packet_size);
-    if(ntohs(header->packet_size) != packet_size) {
-        fprintf(stderr, "Packet size dont match\n");
-    }
-
-    memcpy(&header->flags, raw_packet + packet_offset, sizeof(header->flags));
-    packet_offset += sizeof(header->flags);
-
-    memcpy(&header->msg_type, raw_packet + packet_offset, sizeof(header->msg_type));
-    packet_offset += sizeof(header->msg_type);
-
-    uint16_t packet_checksum;
-    memcpy(&packet_checksum, raw_packet + packet_offset, sizeof(header->checksum));
-    header->checksum = 0;   // for future checksum verification
-    packet_offset += sizeof(header->checksum);
-
-    memcpy(&header->seq_num, raw_packet + packet_offset, sizeof(header->seq_num));
-    packet_offset += sizeof(header->seq_num);
-
-    memcpy(&header->ack_num, raw_packet + packet_offset, sizeof(header->ack_num));
-    packet_offset += sizeof(header->ack_num);
-
-    memcpy(raw_packet + packet_offset, &header->authentication, sizeof(header->authentication));
-    packet_offset += sizeof(header->authentication);
-
-    uint16_t calc_packet_checksum = htons(calculate_checksum(header, sizeof(Vpn_header), raw_packet + packet_offset, packet_size - packet_offset));
-
-    if(packet_checksum != calc_packet_checksum) {
-        fprintf(stderr, "Invalid packet checksum: got: %hu     calculated: %hu \n", packet_checksum, calc_packet_checksum);
-    }
-    header->checksum = packet_checksum;
-
-    parsed_packet->header = header;
-    parsed_packet->payload = raw_packet + packet_offset;
-    parsed_packet->payload_size = packet_size - packet_offset;
-    
-    return parsed_packet;
-}
-
+// 'port' should be in NETWORK BYTE ORDER
+// on success returns address to 'sockaddr_in' structure
+// on error NULL and 'myvpn_errno' is set to indicate an error
 struct sockaddr_in* create_sockaddr_in(int af, uint16_t port, char* address)
 {
     struct sockaddr_in* addr = malloc(sizeof(struct sockaddr_in));
+    assert(addr != NULL && "malloc() failed");
+    memset(addr, 0, sizeof(struct sockaddr_in));
     addr->sin_family = af;
-    addr->sin_port = htons(port);
+    addr->sin_port = port;
     int res = inet_pton(AF_INET, address, &(addr->sin_addr));
     if(res == 0) {
-        fprintf(stderr, "Invalid ip '%s'\n", address);
+        myvpn_errno = MYVPN_E_INVALID_IP_ADDRESS;
         return NULL;
     }
     else if (res < 0) {
-        fprintf(stderr, "Invalid address family\n");
-        fprintf(stderr, "%s\n", strerror(errno));
+        myvpn_errno = MYVPN_E_USE_ERRNO;
         return NULL;
     }
     return addr;
@@ -126,19 +129,20 @@ void _print_packet(uint8_t* packet, ssize_t size)
 
 // Idea stolen from TCP standart
 // Sum of all 16-bit words (header + payload)
+// 'header' MUST be in HOST byte order
 uint16_t calculate_checksum(Vpn_header* header, size_t header_size, uint8_t* payload, size_t payload_size)
 {
     assert(header != NULL && header_size > 0);
     if(payload == NULL && payload_size > 0) {
-        fprintf(stderr, "Invalid payload while construsting vpn packet\n");
+        MYVPN_LOG(MYVPN_LOG_ERROR_VERBOSE, "Invalid payload while construsting vpn packet\n");
         abort();    // TODO dont abort on invalid payload
     }
     uint16_t sum = 0;
     for(int i = 0; i < header_size/2; i++) {
-        sum += ntohs(((uint16_t*)header)[i]);
+        sum += ((uint16_t*)header)[i];
     }
     for(int i = 0; i < payload_size/2; i++) {
-        sum += ntohs(((uint16_t*)payload)[i]);
+        sum += ((uint16_t*)payload)[i];
     }
     return sum;
 }
@@ -170,4 +174,21 @@ char* get_bytes_str_num(uint32_t num, size_t size)
 {
     uint8_t* num_bytes = (uint8_t*) &num;
     return get_bytes_str(num_bytes, size);
+}
+
+int get_ipv4_numeric_addr(const char* addr, uint32_t* dst)
+{
+    assert(addr != NULL && dst != NULL);
+    int res = inet_pton(AF_INET, addr, dst);
+    if(res < 0) {
+        myvpn_errno = MYVPN_E_USE_ERRNO;
+        return -1;
+    }
+    else if(res == 0) {
+        myvpn_errno = MYVPN_E_INVALID_IP_ADDRESS;
+        return -1;
+    }
+    else {
+        return 0;
+    }
 }
