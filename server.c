@@ -233,6 +233,9 @@ int accept_connection(Server_ctx* server_ctx, Vpn_network* vpn_network, Vpn_pack
     client_connection->connection_state = CON_UNVERIFIED;
 
 
+    // TODO: make sure, that if client is connected, if somebody would send fake connection packet, client won't be deleted
+    //      ht_add() will return false, if client is already in hash table, so it is probably fine
+    //      but in that case maybe set proper errno (or maybe not, let's not expose any info to hacker)
     if(!(ht_add(vpn_network->unverified_client_connections, 
         src_addr, sizeof(*src_addr), // copy whole struct
         client_connection, HT_PTR_IS_DATA

@@ -12,13 +12,18 @@
 
 #define MAX_PREALLOC_ADDRESSES 2048
 
-#define USE_U32
 #include "thirdparty/bitarray.h"
 
 #include "thirdparty/cash_table.h"
 
 #define ADDRESS_FREE ((elem_t) 0)
 #define ADDRESS_IN_USE ((elem_t) 1)
+
+// IP addresses are just indexes in bitarray + network mask. Network addrress is not used and thus, not present in 
+//      bitarray. So whole network range must be biased. For example, in net 192.168.1.0/24, addr 192.168.1.1 would be
+//      at index 0 beacuse of ADDR_POOL_BIAS (192.168.1.1 - 192.168.1.0 = 1,    1 - ADDR_POOL_BIAS = 0)
+#define ADDR_POOL_BIAS 1
+
 
 typedef struct {
     // HOST byte order

@@ -37,6 +37,8 @@ char* myvpn_strerror(myvpn_errno_t myvpn_errno)
             return "Packet pointer is NULL";
         case MYVPN_E_ADDR_NULL:
             return "'sockaddr_in' pointer is NULL";
+        case MYVPN_E_ADDR_IS_FREE:
+            return "Address is free";
         case MYVPN_E_CLIENT_NOT_FOUND:
             return "Client with such address was not found in client table";
         case MYVPN_E_ADDR_POOL_OVERFLOW:

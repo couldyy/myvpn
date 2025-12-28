@@ -7,6 +7,9 @@
 #define CASH_TABLE_IMPLEMENTATION
 #include "thirdparty/cash_table.h"
 
+
+// TODO check whether reueted ip is in network range boundaries in all functions
+
 /* 
  'server_addr' MUST be in NETWORK byte order
  initializes 'Vpn_network' structure with data based on supplied 'addr' and 'network_mask':
@@ -39,8 +42,10 @@ Vpn_network* init_vpn_network(char* addr, char* network_mask, uint32_t server_tu
         myvpn_errno = MYVPN_E_INVALID_POOLSIZE;
         goto err_exit;
     }
+
+
     if(set_address_state(address_pool, ntohl(server_tun_addr), network->network_addr, ADDRESS_IN_USE) < 0) {
-        MYVPN_LOG(MYVPN_LOG_ERROR_VERBOSE, "Failed to marsk server address ADDRESS_IN_USE\n");
+        MYVPN_LOG(MYVPN_LOG_ERROR_VERBOSE, "Failed to mark server address ADDRESS_IN_USE\n");
         goto err_exit;
     }
 
@@ -102,22 +107,44 @@ err_exit:
 int check_address(Bit_array* address_pool_mask, uint32_t address, uint32_t network_addr)
 {
     assert(address_pool_mask != NULL);
-    assert(address > network_addr);
-    return get_bit(address_pool_mask, address - network_addr-1); 
+    assert(address > network_addr); // TODO check for net range boundaries
+    return get_bit(address_pool_mask, address - network_addr - ADDR_POOL_BIAS); 
 }
 
+// TODO set up proper myvpn_errno on failures
 // marks address in 'address_pool_mask' as ADDRESS_FREE
 // on success 0 is returned, on error -1
 int free_address(Bit_array* address_pool_mask, uint32_t address, uint32_t network_addr)
 {
     assert(address_pool_mask != NULL);
-    assert(address > network_addr);
-    if(check_address(address_pool_mask, address, network_addr) == ADDRESS_FREE)
+    assert(address > network_addr);     
+
+    int addr_status = check_address(address_pool_mask, address, network_addr);
+                                        
+    if(addr_status < 0) {
+        MYVPN_LOG(MYVPN_LOG_ERROR_VERBOSE, "Failed to check address %u (net: %u): %s\n", 
+            address, network_addr, myvpn_strerror(myvpn_errno));
         return -1;
-    else
-        set_bit(address_pool_mask, address - network_addr - 1, ADDRESS_FREE);
+    }
+    else if(addr_status == ADDRESS_FREE) {
+        myvpn_errno = MYVPN_E_ADDR_IS_FREE;
+        return -1;
+    }
+    else {
+        if(set_bit(address_pool_mask, address - network_addr - ADDR_POOL_BIAS, ADDRESS_FREE) < 0){
+            MYVPN_LOG(MYVPN_LOG_ERROR_VERBOSE, "Failed to set network addr(addr: %u, net: %u) to %hhu\n", 
+                address, network_addr, ADDRESS_FREE);
+            return -1;
+        }
+        return 0;       // probably dont need that
+    }
     return 0;
 }
+
+// TODO: define values for failling functions, e.g. for request_address() - #define REQ_ADDR_FAIL 0 and so on
+// NOTE: Since this function needs to return IP address (aka uin32_t), it needs a way to somehow indicate an error,
+//          without negative value.
+//          The naive way, that i came up with - just return 0. 
 
 // marks requested address as ADDRESS_IN_USE and returns numerical IP address in HOST byte order 
 // on success numerical IP address is returned, on error - 0
@@ -130,9 +157,13 @@ uint32_t request_address(Bit_array* address_pool_mask, uint32_t network_addr)
         return 0;
     }
     else {
-        set_bit(address_pool_mask, index, ADDRESS_IN_USE);
+        if(set_bit(address_pool_mask, index, ADDRESS_IN_USE) < 0) {
+            MYVPN_LOG(MYVPN_LOG_ERROR_VERBOSE, "Failed to set network addr(addr: %u, net: %u) to %hhu\n", 
+                index, network_addr, ADDRESS_IN_USE);
+            return 0;
+        }
     }
-    return network_addr+1+index;
+    return network_addr + index + ADDR_POOL_BIAS;
 }
 
 // sets status of IP address (index in bit array) to either ADDRESS_FREE / ADDRESS_IN_USE
@@ -142,7 +173,7 @@ int set_address_state(Bit_array* address_pool_mask, uint32_t target_addr, uint32
     assert(address_pool_mask != NULL);
     assert(target_addr > network_addr);
     elem_t norm_state = state & 1;
-    return set_bit(address_pool_mask, target_addr - network_addr - 1, norm_state);
+    return set_bit(address_pool_mask, target_addr - network_addr - ADDR_POOL_BIAS, norm_state);
 }
 
 // converts 'addr' and 'network_mask' into numerical values in HOST byte order, applies mask on addr and returns
