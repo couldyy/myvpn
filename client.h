@@ -97,7 +97,7 @@ Raw_packet* construct_connestab_packet(Connection* connection);
 
 // reads and handles tun packet based on dst addr of raw packet
 // On success returns 0, on error -1
-int handle_tun_packet(Client_ctx* client_ctx, Connection* connection);
+int handle_tun_packet(Client_ctx* client_ctx, Connection* connection, uint8_t* packet_buff, size_t packet_buff_size);
 
 // Parses connection data for payload (server and client tun IPs, net mask, auth num) and 
 // writes parsed data into 'connetion'

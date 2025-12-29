@@ -52,6 +52,12 @@ int handle_received_packet(Server_ctx* server_ctx, Vpn_network* vpn_network, Vpn
 // On success returns 0, on error -1 and 'myvpn_errno' is set to indicat and error (BUT NOT IN ALL CASES)
 int handle_data_packet(Server_ctx* server_ctx, Vpn_network* vpn_network, Vpn_packet* packet, struct sockaddr_in* src_addr, socklen_t* src_addr_len);
 
+// Reads IP packet from 'packet_buff[packet_buff_size]', finds client in tun->IP routing table based on 
+//      dst addr in IP packet. Encapsulates IP packet into VPN packet and sends to client
+//
+// On success returns 0, on error -1 
+
+int handle_tun_packet(Server_ctx* server_ctx, Vpn_network* vpn_network, uint8_t* packet_buff, size_t packet_buff_size);
 // creates 'Server_ctx' structure and fills all fields with corresponding data based on supplied function arguments
 // on success returns address to created structure, on error NULL and 'myvpn_errno' is set to indicate an error
 Server_ctx* init_server_ctx(char* server_addr, uint16_t server_port, char* tun_addr, char* tun_mask);

@@ -83,11 +83,12 @@ int main(int argc, char** argv)
         for(int i = 0; i < fds_count; i++) {
             struct pollfd* current = &fds[i];
             if(current->revents & POLLIN == 1) {
+                // TODO allocate packet buffer on head
+                uint8_t buff[PACKET_BUFFER_SIZE] = {0};
                 if (current->fd == client_ctx->socket) {
                     // TODO handle packet based on its msg type
                     struct sockaddr_in src_addr;
                     socklen_t src_addr_len = sizeof(struct sockaddr_in);
-                    uint8_t buff[PACKET_BUFFER_SIZE] = {0};
                     Vpn_packet* received_packet = recv_vpn_packet(client_ctx->socket, buff, sizeof(buff), 0, &src_addr, &src_addr_len, client_ctx->server_real_addr);
                     if(received_packet == NULL) {
                         MYVPN_LOG(MYVPN_LOG_ERROR_VERBOSE, "Failed to receive packet from server: %s\n",
@@ -95,21 +96,16 @@ int main(int argc, char** argv)
                         continue;
                     }
 
-                    //char peer_addr[16];
-                    //inet_ntop(AF_INET, &src_addr.sin_addr, peer_addr, sizeof(peer_addr));
-
-                    //printf("got message on socket (%d) ('%s:%hu'):\n", current->fd, 
-                    //        peer_addr, ntohs(src_addr.sin_port));
-                        //_print_packet(buff, read_bytes);
                     if(tun_write(client_ctx->tun_fd, received_packet->payload, received_packet->payload_size) < 0) {
                         MYVPN_LOG(MYVPN_LOG_ERROR_VERBOSE, "Failed to write packet to tun '%s' : %s\n", 
                             client_ctx->tun_dev, myvpn_strerror(myvpn_errno));
                         continue;
                     }
-                    MYVPN_LOG(MYVPN_LOG_VERBOSE_VERBOSE, "Successfully wrote packet to tun '%d'\n", client_ctx->tun_dev);
+                    MYVPN_LOG(MYVPN_LOG_VERBOSE_VERBOSE, "Successfully wrote packet to tun '%s'\n", client_ctx->tun_dev);
                 }
                 else if (current->fd == tun_fd) {
-                    if(handle_tun_packet(client_ctx, client_connection) < 0) {
+                    // TODO: in future, when you will migrate to arena allocators, remove sizeof(buff)
+                    if(handle_tun_packet(client_ctx, client_connection, buff, sizeof(buff)) < 0) {
                         continue;
                     }
                 }
@@ -123,20 +119,26 @@ int main(int argc, char** argv)
     return 0;
 }
 
+// FIXME: when testing on single machine and using netns, ping *client_tun_ip* from client, results in sending
+//  ping packets to server (Actual IP packet already contains server IP in dst field)
+//      Try to test VPN at different machines
+//
 // reads and handles tun packet based on dst addr of raw packet
 // On success returns 0, on error -1
-int handle_tun_packet(Client_ctx* client_ctx, Connection* connection)
+int handle_tun_packet(Client_ctx* client_ctx, Connection* connection, uint8_t* packet_buff, size_t packet_buff_size)
 {
-    //printf("got message on tun (%d):\n", current->fd);
-    uint8_t buff[PACKET_BUFFER_SIZE];
-    ssize_t read_bytes = tun_read(client_ctx->tun_fd, buff, sizeof(buff));
+    assert(client_ctx != NULL);
+    assert(connection != NULL);
+    assert(packet_buff != NULL);
+    assert(packet_buff_size > 0);
+    ssize_t read_bytes = tun_read(client_ctx->tun_fd, packet_buff, packet_buff_size);
     if(read_bytes < 0) {
         MYVPN_LOG(MYVPN_LOG_ERROR_VERBOSE, "Failed to read packet from tun '%s': %s\n", 
             client_ctx->tun_dev, myvpn_strerror(myvpn_errno));
         return -1;
     }
-    _print_packet(buff, read_bytes);
-    Ip_data ip_data = parse_ip_header(buff, read_bytes);
+    _print_packet(packet_buff, read_bytes);
+    Ip_data ip_data = parse_ip_header(packet_buff, read_bytes);
     MYVPN_LOG(MYVPN_LOG_VERBOSE_VERBOSE, "Read tun packet(version: %d, ip: %u > %u)\n", 
         ip_data.ip_version, ntohl(ip_data.src_addr_v4), ntohl(ip_data.dst_addr_v4));
 
@@ -149,7 +151,7 @@ int handle_tun_packet(Client_ctx* client_ctx, Connection* connection)
         if(ip_data.dst_addr_v4 == client_ctx->tun_addr) {
             MYVPN_LOG(MYVPN_LOG_VERBOSE_VERBOSE, "tun packet dst_addr(%u) == client tun_addr(%u)\n",
                 ip_data.dst_addr_v4, client_ctx->tun_addr);
-            if(tun_write(client_ctx->tun_fd, buff, read_bytes) < 0) {
+            if(tun_write(client_ctx->tun_fd, packet_buff, read_bytes) < 0) {
                 MYVPN_LOG(MYVPN_LOG_ERROR_VERBOSE, "Failed to write packet to tun '%s' : %s\n", 
                     client_ctx->tun_dev, myvpn_strerror(myvpn_errno));
                 return -1;
@@ -157,7 +159,7 @@ int handle_tun_packet(Client_ctx* client_ctx, Connection* connection)
         }
         // just send packet to server over UDP socket
         else {
-            Raw_packet* encapsulated_packet = encapsulate_data_packet(connection->authentication_num, buff, read_bytes);
+            Raw_packet* encapsulated_packet = encapsulate_data_packet(connection->authentication_num, packet_buff, read_bytes);
             if(encapsulated_packet == NULL) {
                 MYVPN_LOG(MYVPN_LOG_ERROR_VERBOSE, "Failed to encapsulate data packet: %s\n", 
                     myvpn_strerror(myvpn_errno));

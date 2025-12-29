@@ -58,15 +58,20 @@ int main(int argc, char** argv)
 
     while(1) {
         poll_res = poll(fds, fds_count, -1);
+        if(poll_res < 0) {
+            MYVPN_LOG(MYVPN_LOG_ERROR, "poll() failed: %s\n", strerror(errno));
+            continue;
+        }
         for(int i = 0; i < fds_count; i++) {
             struct pollfd* current = &fds[i];
             if(current->revents & POLLIN == 1) {
+                // TODO allocate packet buffer on heap
+                uint8_t buff[PACKET_BUFFER_SIZE] = {0};
                 if (current->fd == server_ctx->socket) {
                     struct sockaddr_in src_addr = {0};
                     socklen_t src_addr_len = sizeof(struct sockaddr_in);
                     // TODO maybe let's make buffer size bigger than MTU?
                     // TODO allocate buffer on heap
-                    uint8_t buff[PACKET_BUFFER_SIZE] = {0};
                     Vpn_packet* received_packet = recv_vpn_packet(server_ctx->socket, buff, sizeof(buff), 0,
                         &src_addr, &src_addr_len, NULL);    // dont need to receive from specific addr, so NULL in target filed
 
@@ -75,11 +80,6 @@ int main(int argc, char** argv)
                         continue;
                     }
 
-                    //char peer_addr[16];
-                    //inet_ntop(AF_INET, &src_addr.sin_addr, peer_addr, sizeof(peer_addr));
-
-                    //printf("got message on socket (%d) ('%s:%hu'):\n", current->fd, 
-                    //        peer_addr, ntohs(src_addr.sin_port));
                     _print_packet(buff, sizeof(Vpn_header) + received_packet->payload_size);
                     if(handle_received_packet(server_ctx, vpn_network, received_packet, &src_addr, &src_addr_len) < 0) {
                         MYVPN_LOG(MYVPN_LOG_ERROR_VERBOSE, "Failed to handle received packet from '%u:%hu'\n",
@@ -88,60 +88,11 @@ int main(int argc, char** argv)
                     }
                 }
                 else if (current->fd == server_ctx->tun_fd) {
-                    // TODO allocate buffer on heap
-                    uint8_t buff[PACKET_BUFFER_SIZE];
-                    ssize_t read_bytes = 0;
-                    read_bytes = read(current->fd, buff, sizeof(buff));
-                    if(read_bytes == 0) {
-                        fprintf(stderr, "EOF reached on '%d'\n", current->fd);
+                    // TODO: in future, when you will migrate to arena allocators, remove sizeof(buff)
+                    if(handle_tun_packet(server_ctx, vpn_network, buff, sizeof(buff)) < 0) {
+                        MYVPN_LOG(MYVPN_LOG_ERROR_VERBOSE, "Failed to handle tun packet on '%s'\n", 
+                            server_ctx->tun_dev);
                         continue;
-                    }
-                    else if(read_bytes < 0) {
-                        fprintf(stderr, "read(%d): %s\n", current->fd, strerror(errno));
-                        continue;
-                    }
-                    else {
-                        // TODO
-                        // TODO check for dst and src addr, and send accordiong to clients table
-                        _print_packet(buff, read_bytes);
-                        Ip_data ip_data = parse_ip_header(buff, read_bytes);
-                        //printf("version: %d\n", ip_data.ip_version);
-
-                        if(ip_data.ip_version == 6 || ip_data.ip_version != 4) {
-                            continue;
-                        }
-                        else if(ip_data.dst_addr_v4 == 0) {
-                            MYVPN_LOG(MYVPN_LOG_ERROR_VERBOSE, "Failed to parse 'dst' IP addr: %s\n", 
-                                myvpn_strerror(myvpn_errno));
-                            continue;
-                        }
-                        struct sockaddr_in* client = ht_find(vpn_network->tun_to_ip_route_table, 
-                            (void*)(ip_data.dst_addr_v4));
-                        if(client == NULL) {
-                            MYVPN_LOG(MYVPN_LOG_ERROR_VERBOSE, "Could not find dst client '%u' in 'tun->ip_route_table'\n",
-                                ntohl(ip_data.dst_addr_v4));
-                            continue;
-                        }
-                        Connection* client_data = ht_find(vpn_network->clients_table, client);
-                        if(client_data == NULL) {
-                            MYVPN_LOG(MYVPN_LOG_ERROR_VERBOSE, "Could not find dst client_data for '%u:%hu' in 'clients_table'\n",
-                                ntohl(client->sin_addr.s_addr), ntohs(client->sin_port));
-                            continue;
-                        }
-
-                        Raw_packet* encapsulated_packet = encapsulate_data_packet(client_data->authentication_num, buff, read_bytes);
-                        if(encapsulated_packet == NULL) {
-                            MYVPN_LOG(MYVPN_LOG_ERROR_VERBOSE, "Failed to encapsulate data packet: %s\n", 
-                                myvpn_strerror(myvpn_errno));
-                            continue;
-                        }
-                        if(send_vpn_packet(server_ctx->socket, encapsulated_packet, 0, client) < 0) {
-                            MYVPN_LOG(MYVPN_LOG_ERROR_VERBOSE, "Failed to send packet to '%u:%hu': %s\n", 
-                                ntohl(client->sin_addr.s_addr), ntohs(client->sin_port), myvpn_strerror(myvpn_errno));
-                            continue;
-                        }
-                        MYVPN_LOG(MYVPN_LOG_VERBOSE_VERBOSE, "Successfully sent packet to '%u:%hu'\n", 
-                            ntohl(client->sin_addr.s_addr), ntohs(client->sin_port));
                     }
                 }
                 else {
@@ -452,27 +403,15 @@ int handle_data_packet(Server_ctx* server_ctx, Vpn_network* vpn_network, Vpn_pac
 
     // If encapsulated IP dst addr == server tun_addr - just write it to servers tun
     if(server_ctx->tun_addr == ip_header_data.dst_addr_v4) {
-        ssize_t written_bytes = write(server_ctx->tun_fd, packet->payload, packet->payload_size);
+        ssize_t written_bytes = tun_write(server_ctx->tun_fd, packet->payload, packet->payload_size);
         if(written_bytes < 0) {
             MYVPN_LOG(MYVPN_LOG_ERROR, "Faild to write packet to '%s': %s\n", server_ctx->tun_dev, strerror(errno));
             myvpn_errno = MYVPN_E_USE_ERRNO;
             return -1;
         }
-        else if(written_bytes == 0) {   // TODO dgram sockets allow packets with 0 size, mb dont interprete it as error
-            MYVPN_LOG(MYVPN_LOG_ERROR, "Wrote 0 bytes to '%s' \n", server_ctx->tun_dev);
-            myvpn_errno = MYVPN_E_USE_ERRNO;
-            return -1;
-        }
-        else if(written_bytes != packet->payload_size) {
-            MYVPN_LOG(MYVPN_LOG_WARNING, "Wrote %d/%d bytes of packet\n", written_bytes, packet->payload_size);
-            myvpn_errno = MYVPN_E_INCOMPLETE_PACKET;
-            return -1;
-        }
-        else {
-            MYVPN_LOG(MYVPN_LOG_VERBOSE_VERBOSE, "Successfully wrote packet(%hu bytes) to '%s'\n",
-                     packet->payload_size, server_ctx->tun_dev);
-            return 0;
-        }
+        MYVPN_LOG(MYVPN_LOG_VERBOSE_VERBOSE, "Successfully wrote packet(%hu bytes) to '%s'\n",
+                 packet->payload_size, server_ctx->tun_dev);
+        return 0;
     }
     // otherwise route to client or drop packet if one was not found
     else { // dont need else in here, but this way it is more explicit
@@ -509,6 +448,66 @@ int handle_data_packet(Server_ctx* server_ctx, Vpn_network* vpn_network, Vpn_pac
             return 0;
         }
     }
+}
+
+// Reads IP packet from 'packet_buff[packet_buff_size]', finds client in tun->IP routing table based on 
+//      dst addr in IP packet. Encapsulates IP packet into VPN packet and sends to client
+//
+// On success returns 0, on error -1 
+int handle_tun_packet(Server_ctx* server_ctx, Vpn_network* vpn_network, uint8_t* packet_buff, size_t packet_buff_size)
+{
+    assert(server_ctx != NULL);
+    assert(vpn_network != NULL);
+    assert(packet_buff != NULL && packet_buff_size > 0);
+    ssize_t read_bytes = tun_read(server_ctx->tun_fd, packet_buff, packet_buff_size);
+    if(read_bytes < 0) {
+        MYVPN_LOG(MYVPN_LOG_ERROR_VERBOSE, "Failed to read packet from tun '%s': %s\n", server_ctx->tun_dev,
+            myvpn_strerror(myvpn_errno));
+        return -1;
+    }
+    // TODO check for dst and src addr, and send accordiong to clients table
+    _print_packet(packet_buff, read_bytes);
+    Ip_data ip_data = parse_ip_header(packet_buff, read_bytes);
+
+    if(ip_data.ip_version != 4) {
+        MYVPN_LOG(MYVPN_LOG_VERBOSE_VERBOSE, "Received IP packet with unsupported version: %d\n",
+            ip_data.ip_version);
+        return -1;
+    }
+    else if(ip_data.dst_addr_v4 == 0) {
+        MYVPN_LOG(MYVPN_LOG_ERROR_VERBOSE, "Failed to parse 'dst' IP addr: %s\n", 
+            myvpn_strerror(myvpn_errno));
+        return -1;
+    }
+    struct sockaddr_in* client = ht_find(vpn_network->tun_to_ip_route_table, 
+        (void*)(ip_data.dst_addr_v4));
+    if(client == NULL) {
+        MYVPN_LOG(MYVPN_LOG_ERROR_VERBOSE, "Could not find dst client '%u' in 'tun->ip_route_table'\n",
+            ntohl(ip_data.dst_addr_v4));
+        return -1;
+    }
+    Connection* client_data = ht_find(vpn_network->clients_table, client);
+    if(client_data == NULL) {
+        MYVPN_LOG(MYVPN_LOG_ERROR_VERBOSE, "Could not find dst client_data for '%u:%hu' in 'clients_table'\n",
+            ntohl(client->sin_addr.s_addr), ntohs(client->sin_port));
+        return -1;
+    }
+
+    Raw_packet* encapsulated_packet = encapsulate_data_packet(client_data->authentication_num, packet_buff, read_bytes);
+    if(encapsulated_packet == NULL) {
+        MYVPN_LOG(MYVPN_LOG_ERROR_VERBOSE, "Failed to encapsulate data packet: %s\n", 
+            myvpn_strerror(myvpn_errno));
+        return -1;
+    }
+    if(send_vpn_packet(server_ctx->socket, encapsulated_packet, 0, client) < 0) {
+        MYVPN_LOG(MYVPN_LOG_ERROR_VERBOSE, "Failed to send packet to '%u:%hu': %s\n", 
+            ntohl(client->sin_addr.s_addr), ntohs(client->sin_port), myvpn_strerror(myvpn_errno));
+        //free(encapsulated_packet);    // for now lets just ignore
+        return -1;
+    }
+    MYVPN_LOG(MYVPN_LOG_VERBOSE_VERBOSE, "Successfully sent packet to '%u:%hu'\n", 
+        ntohl(client->sin_addr.s_addr), ntohs(client->sin_port));
+    return 0;
 }
 
 
