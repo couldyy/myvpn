@@ -16,6 +16,7 @@
 #include "tun.h"
 #include "utils.h"
 
+//#define MYVPN_PROTO_DEBUG_PRINT_PACKET        // print all packets payload in bytes
 
 typedef struct {
     // HOST byte order

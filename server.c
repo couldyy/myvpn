@@ -17,6 +17,7 @@ int main(int argc, char** argv)
 
     // init loggin context
     g_log_context = init_log_context(NULL, MYVPN_LOG_VERBOSE_VERBOSE);
+    //g_log_context = init_log_context(NULL, MYVPN_LOG);
     MYVPN_LOG(MYVPN_LOG, ">>> [ MyVPN server started ] <<<\n");
 
     // init server context
@@ -74,7 +75,6 @@ int main(int argc, char** argv)
                         continue;
                     }
 
-                    printf("got here\n");
                     //char peer_addr[16];
                     //inet_ntop(AF_INET, &src_addr.sin_addr, peer_addr, sizeof(peer_addr));
 
@@ -88,7 +88,6 @@ int main(int argc, char** argv)
                     }
                 }
                 else if (current->fd == server_ctx->tun_fd) {
-                    printf("got message on tun (%d):\n", current->fd);
                     // TODO allocate buffer on heap
                     uint8_t buff[PACKET_BUFFER_SIZE];
                     ssize_t read_bytes = 0;
@@ -106,20 +105,27 @@ int main(int argc, char** argv)
                         // TODO check for dst and src addr, and send accordiong to clients table
                         _print_packet(buff, read_bytes);
                         Ip_data ip_data = parse_ip_header(buff, read_bytes);
-                        printf("version: %d\n", ip_data.ip_version);
+                        //printf("version: %d\n", ip_data.ip_version);
 
                         if(ip_data.ip_version == 6 || ip_data.ip_version != 4) {
                             continue;
                         }
+                        else if(ip_data.dst_addr_v4 == 0) {
+                            MYVPN_LOG(MYVPN_LOG_ERROR_VERBOSE, "Failed to parse 'dst' IP addr: %s\n", 
+                                myvpn_strerror(myvpn_errno));
+                            continue;
+                        }
                         struct sockaddr_in* client = ht_find(vpn_network->tun_to_ip_route_table, 
-                            (void*)(ip_data.src_addr_v4));
+                            (void*)(ip_data.dst_addr_v4));
                         if(client == NULL) {
-                            MYVPN_LOG(MYVPN_LOG_ERROR_VERBOSE, "Could not find dst client in 'tun_to_ip_route_table'\n");
+                            MYVPN_LOG(MYVPN_LOG_ERROR_VERBOSE, "Could not find dst client '%u' in 'tun->ip_route_table'\n",
+                                ntohl(ip_data.dst_addr_v4));
                             continue;
                         }
                         Connection* client_data = ht_find(vpn_network->clients_table, client);
                         if(client_data == NULL) {
-                            MYVPN_LOG(MYVPN_LOG_ERROR_VERBOSE, "Could not find dst client in 'clients_table'\n");
+                            MYVPN_LOG(MYVPN_LOG_ERROR_VERBOSE, "Could not find dst client_data for '%u:%hu' in 'clients_table'\n",
+                                ntohl(client->sin_addr.s_addr), ntohs(client->sin_port));
                             continue;
                         }
 
@@ -212,6 +218,9 @@ int accept_connection(Server_ctx* server_ctx, Vpn_network* vpn_network, Vpn_pack
         error_code = MYVPN_EM_INTERNAL_SERVER_ERR;
         goto send_err_msg; 
     }
+    MYVPN_LOG(MYVPN_LOG_VERBOSE_VERBOSE, "Assigned tun address '%u' for '%u:%hu'\n", assigned_client_tun,
+        ntohl(src_addr->sin_addr.s_addr), ntohs(src_addr->sin_port));
+
     Raw_packet* con_repl_packet = construct_con_repl_packet(htonl(TODO_AUTH_NUM), TODO_SEQ_NUM, TODO_ACK_NUM, server_ctx->tun_addr, server_ctx->tun_mask, htonl(assigned_client_tun));
     if(con_repl_packet == NULL) {
         MYVPN_LOG(MYVPN_LOG_ERROR_VERBOSE, "Failed to construct CONNECT_REPLY packet for '%u:%hu' : %s\n", 
@@ -226,7 +235,7 @@ int accept_connection(Server_ctx* server_ctx, Vpn_network* vpn_network, Vpn_pack
     // Create client and add to unverified list
     Connection* client_connection = malloc(sizeof(Connection));
     assert(client_connection != NULL && "malloc() failed");
-    client_connection->tun_addr = assigned_client_tun;
+    client_connection->tun_addr = htonl(assigned_client_tun);
     client_connection->authentication_num = htonl(TODO_AUTH_NUM);
     client_connection->seq_num = TODO_SEQ_NUM;
     client_connection->ack_num = TODO_ACK_NUM;
@@ -240,7 +249,7 @@ int accept_connection(Server_ctx* server_ctx, Vpn_network* vpn_network, Vpn_pack
         src_addr, sizeof(*src_addr), // copy whole struct
         client_connection, HT_PTR_IS_DATA
         ))) {
-        MYVPN_LOG(MYVPN_LOG_ERROR, "Failed to add client '%u:%hu' to unverified list\n", 
+        MYVPN_LOG(MYVPN_LOG_ERROR, "Failed to add client '%u:%hu' to unverified connections list\n", 
             ntohl(src_addr->sin_addr.s_addr), ntohs(src_addr->sin_port));
         error_code = MYVPN_EM_INTERNAL_SERVER_ERR;
         goto send_err_msg;
@@ -248,10 +257,10 @@ int accept_connection(Server_ctx* server_ctx, Vpn_network* vpn_network, Vpn_pack
 
     if(send_vpn_packet(server_ctx->socket, con_repl_packet, 0, src_addr) < 0) {
         MYVPN_LOG(MYVPN_LOG_ERROR_VERBOSE, "Failed to send CONNECT_REPLY packet for '%u:%hu' : %s\n", 
-            ntohl(src_addr->sin_addr.s_addr), ntohl(src_addr->sin_port), myvpn_strerror(myvpn_errno));
+            ntohl(src_addr->sin_addr.s_addr), ntohs(src_addr->sin_port), myvpn_strerror(myvpn_errno));
         if(!(ht_remove(vpn_network->unverified_client_connections, src_addr))) {
             MYVPN_LOG(MYVPN_LOG_ERROR, "Failed to remove dangling client '%u:%hu' from unverified list\n", 
-                ntohl(src_addr->sin_addr.s_addr), ntohl(src_addr->sin_port));
+                ntohl(src_addr->sin_addr.s_addr), ntohs(src_addr->sin_port));
         }
         return -1;      // makes no sense to send error message if this one failed
     }
@@ -270,7 +279,7 @@ send_err_msg:
     // just sending it back. Might seem a little confsing
     if(send_vpn_packet(server_ctx->socket, error_packet, 0, src_addr) < 0) {
          MYVPN_LOG(MYVPN_LOG_ERROR_VERBOSE, "Failed to send error message with code: %d to '%u:%hu' : %s\n", 
-             error_code, ntohl(src_addr->sin_addr.s_addr), ntohl(src_addr->sin_port), myvpn_strerror(myvpn_errno));
+             error_code, ntohl(src_addr->sin_addr.s_addr), ntohs(src_addr->sin_port), myvpn_strerror(myvpn_errno));
          return -1;
     }
     return -1;   // error message was sent successfully, but we still failed to connect client
@@ -322,21 +331,17 @@ int estab_connection(Server_ctx* server_ctx, Vpn_network* vpn_network, Vpn_packe
     unverified_connection->connection_state = CON_ESTAB;
 
     // Remove client unverified connection from unverified connections table first, so dont have to do remove client from
-    // 'clients_table' if this one fails
-    // adding client to client list fails.
-    // WARNING
-    // This should be fine since in hash table only pointers are stored and we saved id in a local variable.
-    // But still, BE CAUTIOS!
+    // 'clients_table' if adding client to client list fails.
     if(!ht_remove(vpn_network->unverified_client_connections, src_addr)) {
-        MYVPN_LOG(MYVPN_LOG_ERROR, "Failed to remove client(%u:%hu tun: %u, auth: %u) 'unverified_client_connections'\n",
-            ntohl(src_addr->sin_addr.s_addr), ntohl(src_addr->sin_port), 
+        MYVPN_LOG(MYVPN_LOG_ERROR, "Failed to remove client(%u:%hu tun: %u, auth: %u) from unverified connections table\n",
+            ntohl(src_addr->sin_addr.s_addr), ntohs(src_addr->sin_port), 
             unverified_connection->tun_addr, ntohl(unverified_connection->authentication_num));
         error_code = MYVPN_EM_INTERNAL_SERVER_ERR;
         goto send_err_msg;
     }
     MYVPN_LOG(MYVPN_LOG_VERBOSE_VERBOSE, "Removed client(%u:%hu tun: %u, auth: %u) from 'unverified_client_connections'\n",
-        ntohl(src_addr->sin_addr.s_addr), ntohl(src_addr->sin_port), 
-        unverified_connection->tun_addr, ntohl(unverified_connection->authentication_num));
+        ntohl(src_addr->sin_addr.s_addr), ntohs(src_addr->sin_port), 
+        ntohl(unverified_connection->tun_addr), ntohl(unverified_connection->authentication_num));
 
     // add to clients table
     if(!ht_add(vpn_network->clients_table, src_addr, sizeof(*src_addr), unverified_connection, HT_PTR_IS_DATA)) {
@@ -367,8 +372,8 @@ int estab_connection(Server_ctx* server_ctx, Vpn_network* vpn_network, Vpn_packe
     }
 
     MYVPN_LOG(MYVPN_LOG_VERBOSE_VERBOSE, "Added client(%u:%hu tun: %u, auth: %u) to 'clients_table'\n",
-        ntohl(src_addr->sin_addr.s_addr), ntohl(src_addr->sin_port), 
-        unverified_connection->tun_addr, ntohl(unverified_connection->authentication_num));
+        ntohl(src_addr->sin_addr.s_addr), ntohs(src_addr->sin_port), 
+        ntohl(unverified_connection->tun_addr), ntohl(unverified_connection->authentication_num));
 
 
     if(send_vpn_packet(server_ctx->socket, conestab_repl_packet, 0, src_addr) < 0) {
@@ -396,8 +401,8 @@ int estab_connection(Server_ctx* server_ctx, Vpn_network* vpn_network, Vpn_packe
     
 
     MYVPN_LOG(MYVPN_LOG_VERBOSE, "ESTABLISHED connection with client '%u:%hu' (tun: %u, auth: %u)\n", 
-                ntohl(src_addr->sin_addr.s_addr), ntohl(src_addr->sin_port),
-                unverified_connection->tun_addr, ntohl(unverified_connection->authentication_num));
+                ntohl(src_addr->sin_addr.s_addr), ntohs(src_addr->sin_port),
+                ntohl(unverified_connection->tun_addr), ntohl(unverified_connection->authentication_num));
     return 0;
 
     
@@ -472,7 +477,7 @@ int handle_data_packet(Server_ctx* server_ctx, Vpn_network* vpn_network, Vpn_pac
     // otherwise route to client or drop packet if one was not found
     else { // dont need else in here, but this way it is more explicit
         struct sockaddr_in* dst_client_real_addr = ht_find(vpn_network->tun_to_ip_route_table, 
-        (void*)(ntohl(ip_header_data.dst_addr_v4)));
+        (void*)(ip_header_data.dst_addr_v4));
         if(dst_client_real_addr == NULL) {
             myvpn_errno = MYVPN_E_CLIENT_NOT_FOUND;
             MYVPN_LOG(MYVPN_LOG_ERROR_VERBOSE, "Could not find client IP mapping for tun IP %d\n", ntohl(ip_header_data.dst_addr_v4));
@@ -493,12 +498,13 @@ int handle_data_packet(Server_ctx* server_ctx, Vpn_network* vpn_network, Vpn_pac
         Raw_packet* encapsulated_packet = encapsulate_data_packet(client_connection->authentication_num, packet->payload,
             packet->payload_size);
         if(send_vpn_packet(server_ctx->socket, encapsulated_packet, 0, dst_client_real_addr) < 0) {
-            MYVPN_LOG(MYVPN_LOG_ERROR, "Failed to send data packet to client %d(tun: %d): %s\n ",
-                ntohl(dst_client_real_addr->sin_addr.s_addr), ntohl(ip_header_data.dst_addr_v4), myvpn_strerror(myvpn_errno));
+            MYVPN_LOG(MYVPN_LOG_ERROR, "Failed to send data packet to client '%u:%hu' (tun: %u): %s\n ",
+                ntohl(dst_client_real_addr->sin_addr.s_addr), ntohs(dst_client_real_addr->sin_port), 
+                ntohl(ip_header_data.dst_addr_v4), myvpn_strerror(myvpn_errno));
             return -1;
         }
         else {
-            MYVPN_LOG(MYVPN_LOG_VERBOSE_VERBOSE, "Routed data packet to client %d(tun: %d)",
+            MYVPN_LOG(MYVPN_LOG_VERBOSE_VERBOSE, "Routed data packet to client %u(tun: %u)",
                 ntohl(dst_client_real_addr->sin_addr.s_addr), ntohl(ip_header_data.dst_addr_v4));
             return 0;
         }

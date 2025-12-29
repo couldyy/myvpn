@@ -54,7 +54,7 @@ typedef struct {
     // value: Connection* client_connection (just pointer)
     HashTable* unverified_client_connections;
 
-    // key: uint32_t(as ptr)  tun_addr  
+    // key: uint32_t(as ptr)  tun_addr (NETWORK byte order)
     // value: struct sockaddr_in* real_addr (actual copy of struct)
     HashTable* tun_to_ip_route_table;
 

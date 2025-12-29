@@ -106,7 +106,7 @@ Raw_packet* construct_vpn_packet(Vpn_header* header, uint8_t* payload, size_t pa
     size_t header_size = sizeof(Vpn_header);
     // header MUST be calculated in HOST_BO, see calculate_checksum() comments
     uint16_t checksum = calculate_checksum(header, header_size, payload, payload_size);
-    printf("n %hu    h %hu\n", checksum, htons(checksum));
+    //printf("n %hu    h %hu\n", checksum, htons(checksum));
     header->checksum = checksum;    // will be converted later with HEADER_TO_NETWORK_BO()
 
     uint16_t vpn_packet_size = header_size + payload_size;
@@ -243,7 +243,7 @@ Vpn_packet* parse_packet(uint8_t* raw_packet, size_t packet_size)
         payload_ptr = raw_packet + packet_offset;
         payload_size = packet_size - packet_offset;
     }
-    printf("%p, %zu\n", payload_ptr, payload_size);
+    //printf("%p, %zu\n", payload_ptr, payload_size);
     uint16_t calc_packet_checksum = calculate_checksum(header, sizeof(Vpn_header), payload_ptr, payload_size);
 
     if(packet_checksum != calc_packet_checksum) {

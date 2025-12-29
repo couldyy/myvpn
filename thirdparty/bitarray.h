@@ -208,10 +208,6 @@ int init_bit_array(Bit_array* bit_array, size_t bit_count, uint8_t init_value)
     assert(bit_array != NULL);
     assert(bit_count > 0);
     
-    if(bit_count > ELEM_T_MAX_VALUE) {
-        return -1;
-    }
-
     elem_t last_byte_bits = bit_count % ELEMENT_SIZE;
     size_t arr_size = bit_count / ELEMENT_SIZE + (last_byte_bits == 0 ? 0 : 1);
     bit_array->items = malloc(sizeof(elem_t) * arr_size);

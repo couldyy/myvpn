@@ -103,6 +103,7 @@ struct sockaddr_in* create_sockaddr_in(int af, uint16_t port, char* address)
 // TODO last byte is not printed
 void _print_packet(uint8_t* packet, ssize_t size)
 {
+#ifdef MYVPN_PROTO_DEBUG_PRINT_PACKET
     assert(size > 0);
     char ascii_line[18] = {0};
     char byte_line[64] = {0};
@@ -124,6 +125,8 @@ void _print_packet(uint8_t* packet, ssize_t size)
         ascii_line[ascii_line_index] = (byte >= 33 && byte <= 126) ? (char)byte : '.'; 
     }
     printf("\n");
+
+#endif //MYVPN_PROTO_DEBUG_PRINT_PACKET
 }
 
 

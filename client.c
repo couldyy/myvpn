@@ -20,6 +20,7 @@ int main(int argc, char** argv)
 
     // init loggin context
     g_log_context = init_log_context(NULL, MYVPN_LOG_VERBOSE_VERBOSE);
+    //g_log_context = init_log_context(NULL, MYVPN_LOG);
 
     // init client context
     Client_ctx* client_ctx = init_client_ctx(local_ip, local_port, server_real_addr, server_port);
@@ -140,7 +141,7 @@ int handle_tun_packet(Client_ctx* client_ctx, Connection* connection)
         ip_data.ip_version, ntohl(ip_data.src_addr_v4), ntohl(ip_data.dst_addr_v4));
 
     if(ip_data.ip_version != 4) {
-        MYVPN_LOG(MYVPN_LOG_ERROR_VERBOSE, "Unsupported verision: %d\n", ip_data.ip_version); 
+        MYVPN_LOG(MYVPN_LOG_VERBOSE_VERBOSE, "Received packet with unsupported verision: %d\n", ip_data.ip_version); 
         return -1;
     }
     // check if dst ip in tun network
@@ -168,7 +169,7 @@ int handle_tun_packet(Client_ctx* client_ctx, Connection* connection)
                     ntohs(client_ctx->server_real_addr->sin_port));
                 return -1;
             }
-            MYVPN_LOG(MYVPN_LOG,"Successfully sent packet to server '%u:%hu'\n", 
+            MYVPN_LOG(MYVPN_LOG_VERBOSE,"Successfully sent packet to server '%u:%hu'\n", 
                 ntohl(client_ctx->server_real_addr->sin_addr.s_addr), ntohs(client_ctx->server_real_addr->sin_port));
             return 0;
         }
@@ -210,7 +211,7 @@ int connect_to_server(Client_ctx* client_ctx, Connection* connection)
         myvpn_errno = MYVPN_E_FAIL_SEND_CON;
         return -1;
     }
-    MYVPN_LOG(MYVPN_LOG_VERBOSE_VERBOSE, "Send connectoin packet to server]\n");
+    MYVPN_LOG(MYVPN_LOG_VERBOSE_VERBOSE, "Send connection packet to server]\n");
 
     uint8_t packet_buf[PACKET_BUFFER_SIZE];
 
