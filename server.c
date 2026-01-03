@@ -31,6 +31,7 @@ int main(int argc, char** argv)
     MYVPN_LOG(MYVPN_LOG, "Successfully initialized server ctx with: '%s:%hu', tun: '%s' & '%s'\n",
         server_addr, server_port, tun_addr, tun_mask);
 
+    // TODO make user pass network addr explicitly and pass it into this function
     Vpn_network* vpn_network = init_vpn_network(tun_addr, tun_mask, server_ctx->tun_addr);
     if(vpn_network == NULL) {
         MYVPN_LOG(MYVPN_LOG_ERROR, "Failed to initialize tun network '%s' & '%s' \n", tun_addr, tun_mask);
@@ -549,7 +550,7 @@ Server_ctx* init_server_ctx(char* server_addr, uint16_t server_port, char* tun_a
 
     // TODO dont use single function to init tun, use defined in 'tun.h'
     // so there is no need to conver tun addr and mask second time
-    int tun_fd = init_tun_if(server_ctx->tun_dev, tun_addr, tun_mask);
+    int tun_fd = init_tun_if(server_ctx->tun_dev, sizeof(server_ctx->tun_dev), tun_addr, tun_mask);
     if(tun_fd < 0) {
         MYVPN_LOG(MYVPN_LOG_ERROR, "Error setting up tun interface\n");
         myvpn_errno = MYVPN_E_USE_ERRNO;

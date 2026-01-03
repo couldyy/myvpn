@@ -30,7 +30,9 @@ typedef struct {
     uint32_t tun_mask;
     //
 
-    char tun_dev[IFNAMSIZ];
+    char tun_dev[IFNAMSIZ];  // WARNING: changing it to just a pointer will cause bugs in server and client, since some
+                             //          functions depend on sizeof(Client_ctx->tun_dev). Thus, changing it to a pointer
+                             //          will make it return invalid size and lead to invalid behaivor or vulnerabilities.
 } Server_ctx;
 
 int accept_connection(Server_ctx* server_ctx, Vpn_network* vpn_network, Vpn_packet* packet, struct sockaddr_in* src_addr, socklen_t* src_addr_len);

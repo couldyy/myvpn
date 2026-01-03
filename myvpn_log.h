@@ -27,6 +27,8 @@ typedef enum {
     MYVPN_LOG_MAX
 } Log_level;
 
+// TODO provide different levels for error and normal logging (or maybe use same level for both, 
+//      _VERBOSE for log and error, _VERBOSE_VERBOSE and so on)
 typedef struct {
     FILE* log_file;
     Log_level log_level;
@@ -34,9 +36,9 @@ typedef struct {
 
 extern Log_context g_log_context;
 
-#define MYVPN_ERROR_PREFIX "[MYVPN_ERROR]"
-#define MYVPN_WARNING_PREFIX "[MYVPN_WARNING]"
-#define MYVPN_LOG_PREFIX "[MYVPN_LOG]"
+#define MYVPN_ERROR_PREFIX "[ERROR]"
+#define MYVPN_WARNING_PREFIX "[WARNING]"
+#define MYVPN_LOG_PREFIX "[INFO]"
 
 // TODO make function thread safe (mutexes)
 #define MYVPN_LOG(loglevel, log_message, ...) \

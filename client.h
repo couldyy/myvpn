@@ -37,7 +37,9 @@ typedef struct {
     uint32_t tun_mask;
     //
 
-    char tun_dev[IFNAMSIZ];
+    char tun_dev[IFNAMSIZ]; // WARNING: changing it to just a pointer will cause bugs in server and client, since some
+                            //          functions depend on sizeof(Client_ctx->tun_dev). Thus, changing it to a pointer
+                            //          will make it return invalid size and lead to invalid behaivor or vulnerabilities.
 } Client_ctx;
 
 //typedef struct {
@@ -99,10 +101,12 @@ Raw_packet* construct_connestab_packet(Connection* connection);
 // On success returns 0, on error -1
 int handle_tun_packet(Client_ctx* client_ctx, Connection* connection, uint8_t* packet_buff, size_t packet_buff_size);
 
-// Parses connection data for payload (server and client tun IPs, net mask, auth num) and 
-// writes parsed data into 'connetion'
+// TODO maybe split this function into 2 
+// Parses connection data from payload (server and client tun IPs, net mask, auth num) and 
+// writes parsed data into 'connetion' and 'client_ctx'. Set received address for tun device(interface) and brings it UP
+// NOTE: 'tun_fd' and 'dev_name' MUST be initialized in 'client_ctx' before calling this function
 // on success returns 0, on error -1 and 'myvpn_errno' is set to indicate and error
-int parse_connection_payload(Client_ctx* client_ctx, Connection* connection, uint8_t* payload, size_t payload_size);
+int parse_and_write_conn_payload(Client_ctx* client_ctx, Connection* connection, uint8_t* payload, size_t payload_size);
 
 // validates CON_REPL reply from server, by msg_type field
 // on success returns 0, on error -1 and 'myvpn_errno' is set to indicate and error

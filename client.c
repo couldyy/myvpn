@@ -44,29 +44,6 @@ int main(int argc, char** argv)
         exit(1);
     }
 
-    // TODO init tun in 'init_client_ctx()'
-    // and get rid of this piece of shit
-    char tun_addr_str[32] = {0};
-    if (inet_ntop(AF_INET, &(client_ctx->tun_addr), tun_addr_str, sizeof(tun_addr_str)) == NULL) {
-        MYVPN_LOG(MYVPN_LOG_ERROR_VERBOSE, "inet_ntop(): %s\n", strerror(errno));
-        exit(1);
-    }
-    char tun_mask_str[32] = {0};
-    if (inet_ntop(AF_INET, &(client_ctx->tun_mask), tun_mask_str, sizeof(tun_mask_str)) == NULL) {
-        MYVPN_LOG(MYVPN_LOG_ERROR_VERBOSE, "inet_ntop(): %s\n", strerror(errno));
-        exit(1);
-    }
-    printf("got tun: %s & %s\n", tun_addr_str, tun_mask_str);
-    int tun_fd = init_tun_if(client_ctx->tun_dev, tun_addr_str, tun_mask_str);
-    if(tun_fd < 0) {
-        MYVPN_LOG(MYVPN_LOG_ERROR_VERBOSE, "Error setting up tun interface\n");
-        exit(1);
-    }
-    else {
-        MYVPN_LOG(MYVPN_LOG, "Configured tun interface '%s' successfully\n", client_ctx->tun_dev);
-    }
-    client_ctx->tun_fd = tun_fd;
-
     size_t fds_count = 2;
     struct pollfd fds[fds_count];
     memset(fds, 0, sizeof(fds));
@@ -103,7 +80,7 @@ int main(int argc, char** argv)
                     }
                     MYVPN_LOG(MYVPN_LOG_VERBOSE_VERBOSE, "Successfully wrote packet to tun '%s'\n", client_ctx->tun_dev);
                 }
-                else if (current->fd == tun_fd) {
+                else if (current->fd == client_ctx->tun_fd) {
                     // TODO: in future, when you will migrate to arena allocators, remove sizeof(buff)
                     if(handle_tun_packet(client_ctx, client_connection, buff, sizeof(buff)) < 0) {
                         continue;
@@ -234,12 +211,15 @@ int connect_to_server(Client_ctx* client_ctx, Connection* connection)
     }
     MYVPN_LOG(MYVPN_LOG_VERBOSE_VERBOSE, "Connection reply packet is VALID\n");
 
-    if(parse_connection_payload(client_ctx, connection, received_packet->payload, received_packet->payload_size) < 0) {
-        MYVPN_LOG(MYVPN_LOG_ERROR_VERBOSE, "Failed to parse connection packet payload: %s\n", myvpn_strerror(myvpn_errno));
-        // TODO set errno
+    if(parse_and_write_conn_payload(client_ctx, connection, received_packet->payload, received_packet->payload_size) < 0) {
+        MYVPN_LOG(MYVPN_LOG_ERROR_VERBOSE, "Failed to parse and write connection packet payload: %s\n", myvpn_strerror(myvpn_errno));
         return -1;
     }
-    MYVPN_LOG(MYVPN_LOG_VERBOSE_VERBOSE, "Parsed connection data from server: TODO data\n");
+    // TODO maybe it is not that safe to log received auth number
+    MYVPN_LOG(MYVPN_LOG_VERBOSE_VERBOSE, "Parsed connection data from server: (HOST byte order)\n"
+        "server tun addr: %u\nclient tun addr: %u\n"
+        "network mask: %u\nauthentication number: %u\n", ntohl(client_ctx->server_tun_addr), 
+        ntohl(client_ctx->tun_addr), ntohl(client_ctx->tun_mask), ntohl(connection->authentication_num));
 
     // TODO memory leak, free header
     Raw_packet* connestab_packet = construct_connestab_packet(connection);
@@ -277,20 +257,31 @@ int connect_to_server(Client_ctx* client_ctx, Connection* connection)
     return 0;
 }
 
-// TODO: also init tun, but DON'T assign ip to it
 // initializes Client_ctx structure by:
 //      - creates client socket
-//      - creates server sockaddr and 'connects' it to client socket
+//      - creates client tun interface
+//      - creates server sockaddr 
 //      - creates client sockaddr
-//      - allocates Client_ctx structure and writes 'client_socket' and 'real_addr'
-// On succress returns address to Client_ctx structure, on error NULL and 'myvpn_errno' is set to indicate an error
+//      - allocates Client_ctx structure and writes 'client_socket', 'real_addr' and 'tun_fd'
+// On succress returns address to Client_ctx structure, on error NULL 
 Client_ctx* init_client_ctx(char* client_addr, uint16_t client_port, char* server_addr, uint16_t server_port) 
 {
     assert(client_addr != NULL && client_port > 0);
     struct sockaddr_in* client_sockaddr;
     struct sockaddr_in* server_sockaddr;
     int client_socket = -1;
+    int client_tun_fd = -1;
 
+    Client_ctx* client_ctx = malloc(sizeof(Client_ctx));
+    assert(client_ctx != NULL);
+    memset(client_ctx, 0, sizeof(Client_ctx));
+    memset(client_ctx->tun_dev, 0, IFNAMSIZ);
+
+    client_tun_fd = tun_alloc(client_ctx->tun_dev, sizeof(client_ctx->tun_dev));
+    if(client_tun_fd < 0) {
+        MYVPN_LOG(MYVPN_LOG_ERROR, "Failed to create tun interface\n");
+        goto init_fail;
+    }
     client_socket = socket(AF_INET, SOCK_DGRAM, 0);
     if(client_socket < 0) {
         myvpn_errno = MYVPN_E_USE_ERRNO;
@@ -311,27 +302,23 @@ Client_ctx* init_client_ctx(char* client_addr, uint16_t client_port, char* serve
         goto init_fail;
     }
     
-
-
     if(bind(client_socket, (struct sockaddr*) client_sockaddr, sizeof(*client_sockaddr)) < 0) {
-        myvpn_errno = MYVPN_E_USE_ERRNO;
+        MYVPN_LOG(MYVPN_LOG_ERROR, "Failed to bind addr '%s:%hu' to client socket\n", client_addr, client_port);
         goto init_fail;
     }
 
-    Client_ctx* client_ctx = malloc(sizeof(Client_ctx));
-    assert(client_ctx != NULL);
-    memset(client_ctx, 0, sizeof(Client_ctx));
-    memset(client_ctx->tun_dev, 0, IFNAMSIZ);
-
+    client_ctx->tun_fd = client_tun_fd;
     client_ctx->socket = client_socket;
     client_ctx->client_real_addr = client_sockaddr;
     client_ctx->server_real_addr = server_sockaddr;
     return client_ctx; 
 
 init_fail:
+    if(client_ctx != NULL) free(client_ctx);
     if(client_sockaddr != NULL) free(client_sockaddr);
     if(server_sockaddr != NULL) free(server_sockaddr);
     if(client_socket > 0) close(client_socket);
+    if(client_tun_fd > 0) close(client_tun_fd);
     return NULL;
 }
 
@@ -344,15 +331,17 @@ Connection* init_connection(void)
     return connection;
 }
 
-// Parses connection data for payload (server and client tun IPs, net mask, auth num) and 
-// writes parsed data into 'connetion'
+// TODO maybe split this function into 2 
+// Parses connection data from payload (server and client tun IPs, net mask, auth num) and 
+// writes parsed data into 'connetion' and 'client_ctx'. Set received address for tun device(interface) and brings it UP
+// NOTE: 'tun_fd' and 'dev_name' MUST be initialized in 'client_ctx' before calling this function
 // on success returns 0, on error -1 and 'myvpn_errno' is set to indicate and error
-int parse_connection_payload(Client_ctx* client_ctx, Connection* connection, uint8_t* payload, size_t payload_size)
+int parse_and_write_conn_payload(Client_ctx* client_ctx, Connection* connection, uint8_t* payload, size_t payload_size)
 {
     // TODO get rid of assert
     assert(client_ctx != NULL);
     assert(connection != NULL);
-    assert(payload != NULL && payload_size);
+    assert(payload != NULL && payload_size > 0);
 
     uint32_t server_tun_addr;
     uint32_t client_tun_addr;
@@ -383,6 +372,17 @@ int parse_connection_payload(Client_ctx* client_ctx, Connection* connection, uin
     offset += sizeof(tun_network_mask);
 
     memcpy(&client_authentication_num, payload + offset, sizeof(client_authentication_num));
+
+    if(set_tun_addr(client_ctx->tun_dev, sizeof(client_ctx->tun_dev), client_tun_addr, tun_network_mask) < 0) {
+        myvpn_errno = MYVPN_E_USE_ERRNO;    // TODO this will most likely return invalid errno num since there are 
+                                            //      successfull function calls before that
+        return -1;
+    }
+    if(set_tun_state(client_ctx->tun_dev, sizeof(client_ctx->tun_dev), UP) < 0) {
+        myvpn_errno = MYVPN_E_USE_ERRNO;    // TODO this will most likely return invalid errno num since there are 
+                                            //      successfull function calls before that
+        return -1;
+    }
 
     client_ctx->server_tun_addr = server_tun_addr;
     client_ctx->tun_addr = client_tun_addr;
