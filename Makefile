@@ -1,6 +1,8 @@
 CC=gcc
+SERVER_OUT=myvpn-server
+CLIENT_OUT=myvpn-client
 
-all: server client
+all: prepare server client
 
 COMPILE_FLAGS = -ggdb
 
@@ -9,10 +11,16 @@ thirdparty/cash_table.h thirdparty/bitarray.h
 
 CLIENT_INCLUDES = client.c proto.c myvpn_errno.c myvpn_log.c tun.c utils.c thirdparty/cash_table.h thirdparty/bitarray.h 
 
-server: $(SERVER_INCLUDES)
-	$(CC) $(COMPILE_FLAGS) -o ./build/server $(SERVER_INCLUDES)
+# create dir if not exists
+prepare:
+	mkdir -p ./build
+
+server: prepare $(SERVER_INCLUDES)
+	$(CC) $(COMPILE_FLAGS) -o ./build/$(SERVER_OUT) $(SERVER_INCLUDES)
 
 
-client: $(CLIENT_INCLUDES) 
-	$(CC) $(COMPILE_FLAGS) -o ./build/client $(CLIENT_INCLUDES)
+client: prepare $(CLIENT_INCLUDES) 
+	$(CC) $(COMPILE_FLAGS) -o ./build/$(CLIENT_OUT) $(CLIENT_INCLUDES)
 
+clean:
+	rm -rf ./build
