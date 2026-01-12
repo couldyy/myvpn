@@ -15,15 +15,15 @@
 // -v   -> errors + MYVPN_LOG
 // -vv   -> errors + MYVPN_LOG + MYVPN_LOG_VERBOSE
 // -vvv   -> errors + MYVPN_LOG + MYVPN_LOG_VERBOSE + MYVPN_LOG_VERBOSE_VERBOSE
-// silent - print nothing
+// silent - log nothing
 #define LOG_LEVEL_LIST \
+    X(MYVPN_LOG_SILENT) \
     X(MYVPN_LOG_ERROR) \
     X(MYVPN_LOG_ERROR_VERBOSE) \
     X(MYVPN_LOG_WARNING) \
     X(MYVPN_LOG) \
     X(MYVPN_LOG_VERBOSE) \
-    X(MYVPN_LOG_VERBOSE_VERBOSE) \
-    X(MYVPN_LOG_SILENT)
+    X(MYVPN_LOG_VERBOSE_VERBOSE)
 
 typedef enum {
 #define X(name) name,
