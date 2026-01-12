@@ -7,18 +7,23 @@
 #include <string.h>
 #include <time.h>
 
+// TODO maybe provide separate list for logging and error levels, since some info (like init info) probably
+//      should be written anyway
 // TODO let user specify a runtime flag that will enable messages up to a certain level
 // -e   -> print only errors
+// -ee   -> print errors errors + verbose errors
 // -v   -> errors + MYVPN_LOG
 // -vv   -> errors + MYVPN_LOG + MYVPN_LOG_VERBOSE
 // -vvv   -> errors + MYVPN_LOG + MYVPN_LOG_VERBOSE + MYVPN_LOG_VERBOSE_VERBOSE
+// silent - print nothing
 #define LOG_LEVEL_LIST \
     X(MYVPN_LOG_ERROR) \
     X(MYVPN_LOG_ERROR_VERBOSE) \
     X(MYVPN_LOG_WARNING) \
     X(MYVPN_LOG) \
     X(MYVPN_LOG_VERBOSE) \
-    X(MYVPN_LOG_VERBOSE_VERBOSE)
+    X(MYVPN_LOG_VERBOSE_VERBOSE) \
+    X(MYVPN_LOG_SILENT)
 
 typedef enum {
 #define X(name) name,
@@ -50,8 +55,13 @@ extern Log_context g_log_context;
      \
         char* prefix; \
         const char* at_func = __func__; \
+        int at_line = __LINE__; \
         switch(loglevel) { \
             case MYVPN_LOG_ERROR: \
+                prefix = MYVPN_ERROR_PREFIX; \
+                break; \
+\
+            case MYVPN_LOG_ERROR_VERBOSE: \
                 prefix = MYVPN_ERROR_PREFIX; \
                 break; \
  \
@@ -61,7 +71,7 @@ extern Log_context g_log_context;
  \
             default: \
                 prefix = MYVPN_LOG_PREFIX; \
-                at_func = ""; \
+                /*at_func = "";  As of right now, for DEBUG purposes print func and line at each log level*/\
                 break; \
         } \
      \
@@ -83,15 +93,15 @@ extern Log_context g_log_context;
             exit(1);    /* TODO dont exit on convertion failure */ \
         } \
         char gmtime_str[256]; \
-        if(strftime(gmtime_str, sizeof(gmtime_str), "%a %d-%m-%Y %H:%M:%S %Z", &time_broken_down) == 0) { \
+        if(strftime(gmtime_str, sizeof(gmtime_str), "%Y-%m-%dT%H:%M:%S%z", &time_broken_down) == 0) { \
             fprintf(stderr, "%s: strftime(): %s\n", MYVPN_ERROR_PREFIX, strerror(errno)); \
             exit(1); \
         } \
-        /* TODO: '##' in '##__VA_ARGS__' argument is only supported by Cland and GCC \
+        /* TODO: '##' in '##__VA_ARGS__' argument is only supported by Clang and GCC \
            find some compatible way to pass variadic argc and prevent trailing coma ( when \
            there are no args, e.g MYVPN_LOG(MYVPN_LOG, "Some log text"); will result in \
            fprintf(out_file, "%s %s:" "Some log text", prefix, gmtime_str, ); <<<------ trailing coma  */ \
-        fprintf(out_file, "%s\n%s %s: "log_message"\n", gmtime_str, prefix, at_func,##__VA_ARGS__); \
+        fprintf(out_file, "%s:%s %s():%d: "log_message, gmtime_str, prefix, at_func, at_line,##__VA_ARGS__); \
     } while(0)
 
 Log_context init_log_context(const char* log_file_path, Log_level max_loglevel);
