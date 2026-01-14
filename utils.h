@@ -12,7 +12,7 @@
 #include "proto.h"
 #include "myvpn_errno.h"
 
-#define UNUSED(var) ((void)var)
+#define UNUSED(var) ((void)(var))
 
 #define IPV4_SRC_ADDR_BIAS 12
 #define IPV4_DST_ADDR_BIAS 16
@@ -51,9 +51,6 @@ int cmp_sockaddr(const void* a, const void* b);
 uint64_t hash_uint32_ptr(const void* key);
 int cmp_uint32_ptr(const void* a, const void* b);
 
-uint8_t* get_bytes(uint8_t* num, size_t size);
-char* get_bytes_str(uint8_t* num, size_t size);
-char* get_bytes_str_num(uint32_t num, size_t size);
 int get_ipv4_numeric_addr(const char* addr, uint32_t* dst);
 #endif //UTILS_H
 

@@ -35,7 +35,7 @@ int cmp_sockaddr(const void* a, const void* b)
         return 0;
     }
     else {
-        return 1;   // since in HashTable code it only checks wether compare funce returns 0, we can return 
+        return 1;   // since in HashTable code it only checks whether compare funce returns 0, we can return 
     }               // anything but 0 if addresses dont match 
                     
 }

@@ -48,6 +48,7 @@ Raw_packet* construct_con_repl_packet(uint32_t authentication_num, uint32_t seq_
 Raw_packet* construct_connestab_repl_packet(uint32_t auth_num, uint32_t seq_num, uint32_t ack_num) ;
 
 int handle_received_packet(Server_ctx* server_ctx, Vpn_network* vpn_network, Vpn_packet* packet, struct sockaddr_in* src_addr, socklen_t* src_addr_len);
+
 // if encapsulated IP packet DST addr == server tun addr - writes packet to tun interface
 // otherwise looks for client addr in 'tun_to_ip_route_table' and in clients table, if fount - routes packet to client
 //
@@ -58,8 +59,8 @@ int handle_data_packet(Server_ctx* server_ctx, Vpn_network* vpn_network, Vpn_pac
 //      dst addr in IP packet. Encapsulates IP packet into VPN packet and sends to client
 //
 // On success returns 0, on error -1 
-
 int handle_tun_packet(Server_ctx* server_ctx, Vpn_network* vpn_network, uint8_t* packet_buff, size_t packet_buff_size);
+
 // creates 'Server_ctx' structure and fills all fields with corresponding data based on supplied function arguments
 // on success returns address to created structure, on error NULL and 'myvpn_errno' is set to indicate an error
 Server_ctx* init_server_ctx(char* server_addr, uint16_t server_port, char* tun_addr, char* tun_mask);

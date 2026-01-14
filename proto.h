@@ -9,8 +9,6 @@
 
 #define MYVPN_DEBUG_PROTO
 
-
-
 // TODO#3 make structures 'Connection'(client side) and 'Client_connection'(server_side) consistend
 // maybe use some sort of polymorphysm (just a common struct in them)
 
@@ -23,10 +21,9 @@ typedef uint8_t vpnmsgtype_t;
 
 #define PACKET_BUFFER_SIZE 8192 // TODO maybe set to max udp size (65kb)?
 
-//#define VPN_FLAG_SEQ  ((vpnflag_t)1)
-//#define VPN_FLAG_ACK  ((vpnflag_t)2)
-//#define VPN_FLAG_FIN  ((vpnflag_t)4)
-//#define VPN_FLAG_RST  ((vpnflag_t)8)    
+#define VPN_FLAG_ACK  ((vpnflag_t)1)
+#define VPN_FLAG_RST  ((vpnflag_t)2)    
+#define VPN_FLAG_RTM  ((vpnflag_t)4)    // retransmition
 
 #define TODO_AUTH_NUM 1
 #define TODO_SEQ_NUM 0
@@ -44,9 +41,10 @@ typedef uint8_t vpnmsgtype_t;
 #define MYVPN_MSG_TYPE_ERROR ((vpnmsgtype_t)10)
 #define MYVPN_MSG_TYPE_SERVICE ((vpnmsgtype_t)11)     // for acknowlegement, retransmission, resetting etc
 
-//typedef enum {
-//    // ...
-//} Vpn_error;
+// TODO: maybe just create 1 msg type for each action and adjust behaivor by corrsponding flags. For example:
+// Flags: RPL, ESTAB, FIN
+// Types: CONN, PING, RECON_SOFT, RECON_HARD
+// but this will make parsing harder
 
 /*
     MyVPN packet structure:
@@ -57,25 +55,31 @@ typedef uint8_t vpnmsgtype_t;
   |         magic number          |         Packet size           |
   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+  
   |    Flags      |    MSG Type   |                               | 
-  | Reserved for  |               |                               | 
-  | future usage  |               |        Header checksum        |
-  |               |               |                               |
+  | A|R|R         |               |                               | 
+  | C|S|T         |               |        Header checksum        |
+  | K|T|M         |               |                               |
   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+  
-  |                  Synchronization number                       |
+  |                      Sequence number                          |
   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+  
   |                   Acknowlegement number                       |
   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+  
   |                 Authentication(Client ID)                     |
   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+  
-  |                         Payload                               |
-  |            (encapsulated packet or CMD data)                  |
-  |                          ...                                  |
+  /                         Payload                               /
+  /       (encapsulated packet or CON|ERR|SERVICE data)           /
+  /                          ...                                  /
   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+  
 
   Total size: 20 bytes (160 bits) (can probably remove 'checksum' 'magic' and 'packet size')
+    
+  NOTE: Those are not implemented and ONLY plans for protocol that may and most likely will be change in future
 
-  RULES:
-    - all data in `Vpn_header` struct MUST be stored in NETWORK BYTE ORDER
+  Sequence number is always sent, but 
+    for MSG_TYPE_DATA it is a counter of current packet, 
+    for all other MSG_TYPEs that it functions same as in TCP protocol, meaninig SEQ num - (bytes sent + 1) 
+
+  Acknowlegement number is NOT used for MSG_TYPE_DATA packets and only used for all other message type.
+    It works same was as in TCP, meaning - ACK - (received bytes + 1)
 
   Notes:
   - `magic number` is either a made up protocol number or (proto number XOR Client ID) didnt really choose now
@@ -85,18 +89,11 @@ typedef uint8_t vpnmsgtype_t;
   - Only 1 CMD can be sent at a time, while multiple flags can be sent at a time
   
   Abbreviations:
-    CMDs:
-      - KPL - Keep alive (ping message)
-      - CON - Connect
-      - RQI - Request new tun IP
-      - RCT - Recreate connection
-
     Flags:
-      - SEQ - Sequence number field is significant
       - ACK - Acknowlegement number field is significant 
-      - FIN - Finish
-      - CMD - Command
-      - DAT - Data
+      - RST - Finish
+      - RTM - Retransmisson of packet
+
 */
 
 /* 
@@ -191,19 +188,6 @@ typedef struct {
     (__packet_src_sockaddr_ptr)->sin_port == (__target_sockaddr_ptr)->sin_port && \
     (__packet_src_sockaddr_ptr)->sin_addr.s_addr == (__target_sockaddr_ptr)->sin_addr.s_addr) 
 
-//// Each field in network byte order (Big-endian)
-//typedef struct Connection {
-//    int server_socket;
-//    struct sockaddr_in* real_src;
-//    struct sockaddr_in* tun_src;
-//
-//    struct sockaddr_in* real_dst;
-//    struct sockaddr_in* tun_dst;
-//
-//    uint32_t src_seq_num;
-//    uint32_t src_ack_num;
-//    uint32_t authentication;    // on both sides(client and server - client's authentication num)
-//};
 
 Raw_packet* encapsulate_data_packet(uint32_t authentication_num, uint8_t* raw_packet, size_t packet_size);
 

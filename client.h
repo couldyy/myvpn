@@ -42,35 +42,6 @@ typedef struct {
                             //          will make it return invalid size and lead to invalid behaivor or vulnerabilities.
 } Client_ctx;
 
-//typedef struct {
-//    int client_socket;
-//    int tun_fd;
-//
-//    // HOST byte order
-//    uint32_t tun_network_mask;
-//    //
-//
-//    // NETWORK byte order
-//    struct sockaddr_in* local_addr;     // TODO do i need this field?
-//    struct sockaddr_in* local_addr_tun;
-//
-//    struct sockaddr_in* server_addr;
-//    struct sockaddr_in* server_addr_tun;
-//    //
-//
-//
-//    // HOST byte order 
-//    Con_state connection_state;
-//    uint32_t seq_num;
-//    uint32_t ack_num;
-//    //
-//
-//    // NETWORK byte order
-//    uint32_t authentication_num;
-//    //uint32_t server_authentication_num;   
-//    //
-//} Connection;
-
 
 
 // TODO: also init tun, but DON'T assign ip to it
